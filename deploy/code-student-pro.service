@@ -1,0 +1,17 @@
+[Unit]
+Description=CODE Student Pro Backend
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/code-student-pro
+Environment=SPRING_PROFILES_ACTIVE=prod
+Environment=DEEPSEEK_API_KEY=
+Environment=MYSQL_PASSWORD=root
+ExecStart=/usr/bin/java -jar /opt/code-student-pro/server.jar
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

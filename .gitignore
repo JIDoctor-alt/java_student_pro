@@ -1,0 +1,40 @@
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# Java / Maven
+**/target/
+*.class
+*.jar
+!**/mvnw
+!**/.mvn/wrapper/maven-wrapper.jar
+
+# Node / Frontend
+**/node_modules/
+**/dist/
+**/dist-ssr/
+*.local
+.eslintcache
+
+# Generated code & deploy artifacts
+tmp/
+**/tmp/
+
+# Logs
+*.log
+logs/
+
+# Env (keep .env.example / .env.production if needed)
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/

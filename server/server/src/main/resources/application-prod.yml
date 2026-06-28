@@ -1,0 +1,50 @@
+server:
+  port: 8123
+  servlet:
+    context-path: /api
+
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/student_pro?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: ${MYSQL_PASSWORD:root}
+  session:
+    store-type: redis
+    timeout: 30d
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 1
+
+app:
+  deploy-host: http://124.70.195.81/api/static
+
+langchain4j:
+  open-ai:
+    chat-model:
+      base-url: https://api.deepseek.com/v1
+      api-key: ${DEEPSEEK_API_KEY:}
+      model-name: deepseek-chat
+      temperature: 0.7
+      log-requests: false
+      log-responses: false
+    streaming-chat-model:
+      base-url: https://api.deepseek.com/v1
+      api-key: ${DEEPSEEK_API_KEY:}
+      model-name: deepseek-chat
+      temperature: 0.7
+      log-requests: false
+      log-responses: false
+
+mybatis-flex:
+  global-config:
+    print-banner: false
+    logic-delete-column: is_delete
+  configuration:
+    map-underscore-to-camel-case: false
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
