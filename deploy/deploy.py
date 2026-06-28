@@ -67,9 +67,9 @@ def upload_and_deploy(jar: Path, dist: Path) -> None:
         out = stdout.read().decode(errors="ignore")
         err = stderr.read().decode(errors="ignore")
         if out.strip():
-            print(out.strip())
+            print(out.strip().encode("gbk", errors="ignore").decode("gbk", errors="ignore"))
         if err.strip():
-            print(err.strip())
+            print(err.strip().encode("gbk", errors="ignore").decode("gbk", errors="ignore"))
 
     exec_cmd(f"mkdir -p {REMOTE_DIR}/frontend {REMOTE_DIR}/data {REMOTE_DIR}/sql {REMOTE_DIR}/tmp")
 
@@ -99,6 +99,7 @@ def upload_and_deploy(jar: Path, dist: Path) -> None:
         upload_file(sql, f"{REMOTE_DIR}/sql/{sql.name}")
 
     upload_file(DEPLOY_DIR / "docker-compose.yml", f"{REMOTE_DIR}/docker-compose.yml")
+    exec_cmd("mkdir -p /etc/nginx/conf.d /etc/systemd/system")
     upload_file(DEPLOY_DIR / "nginx-code-student-pro.conf", "/etc/nginx/conf.d/code-student-pro.conf")
     upload_file(DEPLOY_DIR / "code-student-pro.service", "/etc/systemd/system/code-student-pro.service")
 
@@ -129,9 +130,14 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 cd {REMOTE_DIR}
-docker compose up -d || docker-compose up -d
-sleep 8
+if docker compose version >/dev/null 2>&1; then
+  docker compose up -d
+else
+  docker-compose up -d
+fi
+sleep 12
 
+rm -f /etc/nginx/sites-enabled/default
 sed -i "s|^Environment=DEEPSEEK_API_KEY=.*|Environment=DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY|" /etc/systemd/system/code-student-pro.service
 systemctl daemon-reload
 systemctl enable code-student-pro
