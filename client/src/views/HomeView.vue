@@ -77,6 +77,10 @@ const loadMyApps = async () => {
   }
 }
 
+const handleAppDeleted = (id: number) => {
+  myApps.value = myApps.value.filter((app) => app.id !== id)
+}
+
 const loadGoodApps = async () => {
   const res = await listGoodAppVoByPage({ current: 1, pageSize: 12, sortField: 'createTime', sortOrder: 'descend' })
   if (res.code === 0 && res.data) {
@@ -147,7 +151,13 @@ onMounted(() => {
     <section v-if="isLogin" class="section">
       <h2 class="section__title">我的作品</h2>
       <div v-if="myApps.length" class="app-grid">
-        <AppCard v-for="app in myApps" :key="app.id" :app="app" />
+        <AppCard
+          v-for="app in myApps"
+          :key="app.id"
+          :app="app"
+          show-menu
+          @deleted="handleAppDeleted"
+        />
       </div>
       <a-empty v-else description="还没有作品，输入描述创建你的第一个应用吧" />
     </section>

@@ -13,5 +13,11 @@ public interface VueProjectStreamCallback {
 
     void onComplete(String fullText);
 
+    /**
+     * 构建完成后的质量检测报告（通过 SSE quality-report 推送）
+     */
+    default void onQualityReport(String summary) {
+    }
+
     void onError(String message);
 }

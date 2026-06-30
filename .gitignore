@@ -33,6 +33,7 @@ logs/
 .env
 .env.local
 .env.*.local
+server/server/src/main/resources/application-local.yml
 
 # Python
 __pycache__/

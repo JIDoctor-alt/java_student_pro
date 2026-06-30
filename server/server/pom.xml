@@ -28,7 +28,21 @@
     </scm>
     <properties>
         <java.version>21</java.version>
+        <langgraph4j.version>1.8.19</langgraph4j.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.bsc.langgraph4j</groupId>
+                <artifactId>langgraph4j-bom</artifactId>
+                <version>${langgraph4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -122,6 +136,17 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-reactor</artifactId>
             <version>1.17.0-beta27</version>
+        </dependency>
+
+        <!-- LangGraph4j：AI 智能体工作流（素材收集、质量检测、代码生成编排） -->
+        <dependency>
+            <groupId>org.bsc.langgraph4j</groupId>
+            <artifactId>langgraph4j-core</artifactId>
+        </dependency>
+        <!-- LangGraph4j Redis Checkpoint 持久化 -->
+        <dependency>
+            <groupId>org.bsc.langgraph4j</groupId>
+            <artifactId>langgraph4j-redis-saver</artifactId>
         </dependency>
         <!-- Redis + Spring Session（分布式 Session） -->
         <dependency>

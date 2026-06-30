@@ -1,6 +1,7 @@
 package com.zhenq.service;
 
 import com.mybatisflex.core.service.IService;
+import com.zhenq.model.dto.visual.VisualEditContext;
 import com.zhenq.model.entity.App;
 import com.zhenq.model.entity.ChatHistory;
 import com.zhenq.model.entity.User;
@@ -48,6 +49,11 @@ public interface ChatHistoryService extends IService<ChatHistory> {
      * 构建带对话记忆的完整 prompt（供 AI 增量改进）
      */
     String buildPromptWithMemory(Long appId, String currentMessage);
+
+    /**
+     * 构建带对话记忆与可视化编辑上下文的 prompt
+     */
+    String buildPromptWithMemory(Long appId, String currentMessage, VisualEditContext visualContext);
 
     ChatHistoryVO getChatHistoryVO(ChatHistory chatHistory);
 

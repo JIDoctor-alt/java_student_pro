@@ -41,4 +41,39 @@ public class AppProperties {
      * 页面加载后额外等待秒数（等待渲染完成）
      */
     private int coverWaitSeconds = 3;
+
+    /**
+     * 是否启用 AI 工作流中的图片素材收集（Pexels + unDraw）
+     */
+    private boolean assetCollectionEnabled = true;
+
+    /**
+     * Pexels API Key（https://www.pexels.com/api/）
+     */
+    private String pexelsApiKey = "";
+
+    /**
+     * Pexels 每次搜索返回的图片数量
+     */
+    private int pexelsPerPage = 3;
+
+    /**
+     * unDraw 每次搜索返回的插画数量
+     */
+    private int undrawPerPage = 3;
+
+    /**
+     * 质量检测失败时的最大重试次数（0 表示不重试）
+     */
+    private int workflowMaxRetries = 1;
+
+    /**
+     * 是否启用 LangGraph4j Checkpoint 持久化（Redis）
+     */
+    private boolean workflowCheckpointEnabled = true;
+
+    /**
+     * Checkpoint 使用的 Redis database（建议与 Session db 分离）
+     */
+    private int workflowCheckpointRedisDatabase = 2;
 }

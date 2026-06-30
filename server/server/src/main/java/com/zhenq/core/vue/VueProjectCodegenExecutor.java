@@ -4,6 +4,9 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.zhenq.ai.VueProjectAgentService;
+import com.zhenq.core.quality.CodeQualityReport;
+import com.zhenq.core.workflow.CodeGenWorkflowExecutor;
+import com.zhenq.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.service.tool.ToolExecution;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -25,14 +28,19 @@ public class VueProjectCodegenExecutor {
     @Resource
     private VueProjectFileTool vueProjectFileTool;
 
+    @Resource
+    private CodeGenWorkflowExecutor codeGenWorkflowExecutor;
+
     /**
      * 启动 Agent 流式生成（异步，通过 callback 推送事件）
      */
     public void executeStream(Long appId, String prompt, VueProjectStreamCallback callback) {
         vueProjectFileTool.bindAppId(appId);
+        String enrichedPrompt = codeGenWorkflowExecutor.preparePrompt(
+                prompt, CodeGenTypeEnum.VUE_PROJECT, appId);
         StringBuilder fullText = new StringBuilder();
         try {
-            vueProjectAgentService.generateVueProjectStream(prompt)
+            vueProjectAgentService.generateVueProjectStream(enrichedPrompt)
                     .onPartialResponse(partial -> {
                         if (shouldSkipPartial(partial)) {
                             return;
@@ -44,6 +52,8 @@ public class VueProjectCodegenExecutor {
                     .onCompleteResponse(response -> {
                         try {
                             vueProjectBuildService.build(appId, callback::onBuildLog);
+                            CodeQualityReport qualityReport = codeGenWorkflowExecutor.finalizeVueProject(appId);
+                            callback.onQualityReport(qualityReport.summary());
                             callback.onComplete(fullText.toString());
                         } catch (Exception e) {
                             log.error("Vue 工程构建失败，appId={}", appId, e);

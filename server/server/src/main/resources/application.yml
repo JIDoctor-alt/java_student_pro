@@ -7,6 +7,9 @@ server:
 spring:
   application:
     name: zhenqi-end
+  config:
+    # 本地密钥：复制 application-local.yml.example -> application-local.yml
+    import: optional:classpath:application-local.yml
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     # 数据库名 student_pro，请按本地实际情况修改账号密码
@@ -50,6 +53,16 @@ app:
   cover-width: 1280
   cover-height: 800
   cover-wait-seconds: 3
+  # AI 工作流：图片素材收集
+  asset-collection-enabled: true
+  pexels-api-key: ${PEXELS_API_KEY:}
+  pexels-per-page: 3
+  undraw-per-page: 3
+  # LangGraph4j 工作流：质量检测失败重试次数（0=不重试）
+  workflow-max-retries: 1
+  # LangGraph4j Checkpoint 持久化到 Redis（使用独立 db，避免与 Session 冲突）
+  workflow-checkpoint-enabled: true
+  workflow-checkpoint-redis-database: 2
 
 # 腾讯云 COS 对象存储（封面截图上传，本地开发可留空以使用 /cover/** 静态目录）
 cos:
@@ -57,7 +70,7 @@ cos:
     host: ${COS_HOST:}
     secret-id: ${COS_SECRET_ID:}
     secret-key: ${COS_SECRET_KEY:}
-    region: ${COS_REGION:ap-shanghai}
+    region: ${COS_REGION:ap-beijing}
     bucket: ${COS_BUCKET:}
     key-prefix: cover/
 
