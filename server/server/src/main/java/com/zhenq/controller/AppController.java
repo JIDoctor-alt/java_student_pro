@@ -14,6 +14,7 @@ import com.zhenq.constant.AppConstant;
 import com.zhenq.constant.UserConstant;
 import com.zhenq.config.AppProperties;
 import com.zhenq.core.AiCodeGeneratorFacade;
+import com.zhenq.core.cover.AppCoverService;
 import com.zhenq.core.vue.VueProjectBuildService;
 import com.zhenq.core.vue.VueProjectCodegenExecutor;
 import com.zhenq.core.vue.VueProjectPathUtils;
@@ -80,6 +81,9 @@ public class AppController {
 
     @Resource
     private AppProperties appProperties;
+
+    @Resource
+    private AppCoverService appCoverService;
 
     /**
      * 每页最大数量（用户侧分页限制）
@@ -277,6 +281,8 @@ public class AppController {
                             } catch (IOException ignored) {
                                 emitter.complete();
                             }
+                            // 不阻塞 SSE：后台截图并回写 app.cover
+                            appCoverService.generateCoverAsync(appId);
                         }
                 );
         emitter.onTimeout(disposable::dispose);
@@ -312,8 +318,13 @@ public class AppController {
                     public void onComplete(String fullText) {
                         chatHistoryService.saveAiMessage(appId, buildVueAiSummary(aiContentBuilder, fullText));
                         sendSseEvent(emitter, "preview-ready", "ok");
-                        sendSseEvent(emitter, "done", "[DONE]");
-                        emitter.complete();
+                        appCoverService.generateCoverAsync(appId, coverUrl -> {
+                            if (StrUtil.isNotBlank(coverUrl)) {
+                                sendSseEvent(emitter, "cover-ready", coverUrl);
+                            }
+                            sendSseEvent(emitter, "done", "[DONE]");
+                            emitter.complete();
+                        });
                     }
 
                     @Override
@@ -365,6 +376,24 @@ public class AppController {
         ChatHistoryCursorPageVO pageVO = chatHistoryService.listHistoryByCursor(
                 queryRequest.getAppId(), queryRequest.getLastId(), pageSize);
         return ResultUtils.success(pageVO);
+    }
+
+    /**
+     * 手动生成应用封面（Selenium 截图预览页）
+     */
+    @PostMapping("/cover/generate")
+    public BaseResponse<String> generateAppCover(@RequestParam Long appId, HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 id 错误");
+        User loginUser = userService.getLoginUser(request);
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
+        if (!app.getUserId().equals(loginUser.getId()) && !userService.isAdmin(loginUser)) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        String coverUrl = appCoverService.generateCover(appId);
+        ThrowUtils.throwIf(StrUtil.isBlank(coverUrl), ErrorCode.OPERATION_ERROR,
+                "封面生成失败，请确认预览页可访问且本机已安装 Chrome");
+        return ResultUtils.success(coverUrl);
     }
 
     /**

@@ -253,6 +253,8 @@ const generate = async (userPrompt: string) => {
       } else if (eventName === 'preview-ready') {
         vuePreviewReady = true
         finishPreview()
+      } else if (eventName === 'cover-ready') {
+        message.success('应用封面已生成')
       }
     },
     onDone: () => {
