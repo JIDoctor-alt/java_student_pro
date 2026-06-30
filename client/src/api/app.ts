@@ -90,10 +90,24 @@ export async function checkPreviewReady(appId: number) {
 }
 
 /**
+ * 手动生成应用封面（Selenium 截图预览页）
+ */
+export async function generateAppCover(appId: number) {
+  const res = await request.post<BaseResponse<string>>('/app/cover/generate', null, { params: { appId } })
+  return res.data
+}
+
+import type { VisualEditContext } from '@/utils/visualEdit'
+
+/**
  * 构造应用维度的 AI 生成 SSE 地址
  */
-export function buildChatGenUrl(appId: number, message: string) {
-  return `${API_BASE_URL}/app/chat/gen/code?appId=${appId}&message=${encodeURIComponent(message)}`
+export function buildChatGenUrl(appId: number, message: string, visualContext?: VisualEditContext | null) {
+  let url = `${API_BASE_URL}/app/chat/gen/code?appId=${appId}&message=${encodeURIComponent(message)}`
+  if (visualContext?.tagName) {
+    url += `&visualContext=${encodeURIComponent(JSON.stringify(visualContext))}`
+  }
+  return url
 }
 
 /**

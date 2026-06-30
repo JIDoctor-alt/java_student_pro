@@ -7,6 +7,7 @@ import com.zhenq.common.ResultUtils;
 import com.zhenq.core.AiCodeGeneratorFacade;
 import com.zhenq.exception.ThrowUtils;
 import com.zhenq.model.enums.CodeGenTypeEnum;
+import com.zhenq.utils.AiErrorUtils;
 import jakarta.annotation.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -60,7 +61,7 @@ public class AiCodeGeneratorController {
                 .map(chunk -> ServerSentEvent.<String>builder().data(chunk).build())
                 .onErrorResume(e -> Flux.just(ServerSentEvent.<String>builder()
                         .event("gen-error")
-                        .data("生成失败：" + e.getMessage())
+                        .data("生成失败：" + AiErrorUtils.toUserMessage(e))
                         .build()))
                 .concatWith(Flux.just(ServerSentEvent.<String>builder().event("done").data("[DONE]").build()));
     }

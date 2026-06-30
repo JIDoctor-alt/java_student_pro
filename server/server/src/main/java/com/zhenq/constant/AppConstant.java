@@ -18,6 +18,11 @@ public interface AppConstant {
     String CODE_DEPLOY_ROOT_DIR = System.getProperty("user.dir") + File.separator + "tmp" + File.separator + "code_deploy";
 
     /**
+     * 应用封面截图根目录
+     */
+    String CODE_COVER_ROOT_DIR = System.getProperty("user.dir") + File.separator + "tmp" + File.separator + "code_cover";
+
+    /**
      * 应用部署后的访问域名前缀（静态资源由后端 /static 提供）
      */
     String CODE_DEPLOY_HOST = "http://localhost:8123/api/static";

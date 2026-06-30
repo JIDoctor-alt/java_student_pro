@@ -1,16 +1,27 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { MessageOutlined } from '@ant-design/icons-vue'
+import { EllipsisOutlined, MessageOutlined } from '@ant-design/icons-vue'
+import { Modal, message } from 'ant-design-vue'
+import type { MenuProps } from 'ant-design-vue'
+import { deleteApp } from '@/api/app'
 import type { AppVO } from '@/api/types'
 
-const props = defineProps<{ app: AppVO }>()
+const props = withDefaults(
+  defineProps<{
+    app: AppVO
+    /** 是否显示右下角操作菜单（我的作品） */
+    showMenu?: boolean
+  }>(),
+  { showMenu: false },
+)
+
+const emit = defineEmits<{
+  deleted: [id: number]
+}>()
 
 const router = useRouter()
 
-/**
- * 相对时间（如 6 天前、1 周前、3 个月前）
- */
 const relativeTime = computed(() => {
   const time = props.app.createTime
   if (!time) return ''
@@ -30,6 +41,32 @@ const relativeTime = computed(() => {
 const goChat = () => {
   router.push(`/app/chat/${props.app.id}`)
 }
+
+const confirmDelete = () => {
+  Modal.confirm({
+    title: '删除作品',
+    content: `确定删除「${props.app.appName || '未知应用'}」吗？删除后无法恢复。`,
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: async () => {
+      const res = await deleteApp({ id: props.app.id })
+      if (res.code === 0 && res.data) {
+        message.success('删除成功')
+        emit('deleted', props.app.id)
+      } else {
+        message.error(res.message || '删除失败')
+      }
+    },
+  })
+}
+
+const onMenuClick: MenuProps['onClick'] = ({ key, domEvent }) => {
+  domEvent.stopPropagation()
+  if (key === 'delete') {
+    confirmDelete()
+  }
+}
 </script>
 
 <template>
@@ -47,8 +84,22 @@ const goChat = () => {
       </div>
     </div>
     <div class="app-card__info">
-      <div class="app-card__name" :title="app.appName">{{ app.appName || '未知应用' }}</div>
-      <div class="app-card__meta">创建于 {{ relativeTime }}</div>
+      <div class="app-card__info-row">
+        <div class="app-card__info-text">
+          <div class="app-card__name" :title="app.appName">{{ app.appName || '未知应用' }}</div>
+          <div class="app-card__meta">创建于 {{ relativeTime }}</div>
+        </div>
+        <a-dropdown v-if="showMenu" :trigger="['click']" placement="bottomRight">
+          <a-button type="text" size="small" class="app-card__more" @click.stop>
+            <EllipsisOutlined />
+          </a-button>
+          <template #overlay>
+            <a-menu @click="onMenuClick">
+              <a-menu-item key="delete" danger>删除</a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
+      </div>
     </div>
   </div>
 </template>
@@ -118,6 +169,17 @@ const goChat = () => {
   padding: 12px 14px;
 }
 
+.app-card__info-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.app-card__info-text {
+  flex: 1;
+  min-width: 0;
+}
+
 .app-card__name {
   overflow: hidden;
   font-size: 15px;
@@ -131,5 +193,19 @@ const goChat = () => {
   margin-top: 4px;
   font-size: 12px;
   color: rgba(0, 0, 0, 0.45);
+}
+
+.app-card__more {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: rgba(0, 0, 0, 0.45);
+  border-radius: 6px;
+}
+
+.app-card__more:hover {
+  color: rgba(0, 0, 0, 0.88);
+  background: rgba(0, 0, 0, 0.04);
 }
 </style>

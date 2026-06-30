@@ -6,7 +6,9 @@ import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.zhenq.common.ErrorCode;
 import com.zhenq.exception.BusinessException;
 import com.zhenq.exception.ThrowUtils;
+import com.zhenq.core.visual.VisualEditPromptUtils;
 import com.zhenq.mapper.ChatHistoryMapper;
+import com.zhenq.model.dto.visual.VisualEditContext;
 import com.zhenq.model.entity.App;
 import com.zhenq.model.entity.ChatHistory;
 import com.zhenq.model.entity.User;
@@ -134,34 +136,40 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
 
     @Override
     public String buildPromptWithMemory(Long appId, String currentMessage) {
+        return buildPromptWithMemory(appId, currentMessage, null);
+    }
+
+    @Override
+    public String buildPromptWithMemory(Long appId, String currentMessage, VisualEditContext visualContext) {
         QueryWrapper queryWrapper = QueryWrapper.create()
                 .eq("app_id", appId)
                 .orderBy("id desc")
                 .limit(AI_MEMORY_LIMIT);
         List<ChatHistory> recentList = this.list(queryWrapper);
-        if (ObjectUtils.isEmpty(recentList)) {
-            return currentMessage;
-        }
-        Collections.reverse(recentList);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("【对话历史】\n");
-        sb.append("以下是用户与本应用的过往对话，请基于已有成果进行增量改进，不要完全重写。\n");
-        for (ChatHistory history : recentList) {
-            if (ChatMessageTypeEnum.USER.getValue().equals(history.getMessageType())) {
-                sb.append("用户：").append(history.getContent()).append("\n");
-            } else if (ChatMessageTypeEnum.AI.getValue().equals(history.getMessageType())) {
-                // AI 回复可能很长，截断避免超出 token 限制
-                String aiContent = StrUtil.maxLength(history.getContent(), 2000);
-                sb.append("AI：").append(aiContent).append("\n");
-            } else if (ChatMessageTypeEnum.ERROR.getValue().equals(history.getMessageType())) {
-                sb.append("系统错误：").append(history.getContent()).append("\n");
+        if (!ObjectUtils.isEmpty(recentList)) {
+            Collections.reverse(recentList);
+            sb.append("【对话历史】\n");
+            sb.append("以下是用户与本应用的过往对话，请基于已有成果进行增量改进，不要完全重写。\n");
+            for (ChatHistory history : recentList) {
+                if (ChatMessageTypeEnum.USER.getValue().equals(history.getMessageType())) {
+                    sb.append("用户：").append(history.getContent()).append("\n");
+                } else if (ChatMessageTypeEnum.AI.getValue().equals(history.getMessageType())) {
+                    String aiContent = StrUtil.maxLength(history.getContent(), 2000);
+                    sb.append("AI：").append(aiContent).append("\n");
+                } else if (ChatMessageTypeEnum.ERROR.getValue().equals(history.getMessageType())) {
+                    sb.append("系统错误：").append(history.getContent()).append("\n");
+                }
             }
+            sb.append("\n");
         }
-        sb.append("\n【当前需求】\n");
+
+        sb.append("【当前需求】\n");
         sb.append(currentMessage);
         sb.append("\n\n请基于对话历史，在已有网页基础上完成当前需求。");
-        return sb.toString();
+
+        return VisualEditPromptUtils.appendVisualEditSection(sb.toString(), visualContext);
     }
 
     @Override

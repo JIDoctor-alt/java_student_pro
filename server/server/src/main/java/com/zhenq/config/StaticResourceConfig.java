@@ -30,6 +30,9 @@ public class StaticResourceConfig implements WebMvcConfigurer {
                 .addResourceLocations("file:" + AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator)
                 .resourceChain(true)
                 .addResolver(indexFallbackResolver());
+
+        registry.addResourceHandler("/cover/**")
+                .addResourceLocations("file:" + AppConstant.CODE_COVER_ROOT_DIR + File.separator);
     }
 
     /**

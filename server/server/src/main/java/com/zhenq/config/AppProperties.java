@@ -16,4 +16,64 @@ public class AppProperties {
      * 部署后静态站点访问前缀
      */
     private String deployHost = "http://localhost:8123/api/static";
+
+    /**
+     * 本服务对外访问前缀（预览、封面等静态资源 URL 拼接用）
+     */
+    private String serverBaseUrl = "http://127.0.0.1:8123/api";
+
+    /**
+     * 是否启用 Selenium 自动生成应用封面
+     */
+    private boolean coverEnabled = true;
+
+    /**
+     * 封面截图宽度（像素）
+     */
+    private int coverWidth = 1280;
+
+    /**
+     * 封面截图高度（像素）
+     */
+    private int coverHeight = 800;
+
+    /**
+     * 页面加载后额外等待秒数（等待渲染完成）
+     */
+    private int coverWaitSeconds = 3;
+
+    /**
+     * 是否启用 AI 工作流中的图片素材收集（Pexels + unDraw）
+     */
+    private boolean assetCollectionEnabled = true;
+
+    /**
+     * Pexels API Key（https://www.pexels.com/api/）
+     */
+    private String pexelsApiKey = "";
+
+    /**
+     * Pexels 每次搜索返回的图片数量
+     */
+    private int pexelsPerPage = 3;
+
+    /**
+     * unDraw 每次搜索返回的插画数量
+     */
+    private int undrawPerPage = 3;
+
+    /**
+     * 质量检测失败时的最大重试次数（0 表示不重试）
+     */
+    private int workflowMaxRetries = 1;
+
+    /**
+     * 是否启用 LangGraph4j Checkpoint 持久化（Redis）
+     */
+    private boolean workflowCheckpointEnabled = true;
+
+    /**
+     * Checkpoint 使用的 Redis database（建议与 Session db 分离）
+     */
+    private int workflowCheckpointRedisDatabase = 2;
 }

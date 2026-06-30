@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
   ArrowUpOutlined,
   CloudUploadOutlined,
   EditOutlined,
+  LoadingOutlined,
   PaperClipOutlined,
   ReloadOutlined,
   RobotOutlined,
@@ -17,6 +18,12 @@ import type { AppVO, ChatHistoryVO } from '@/api/types'
 import { CODE_GEN_TYPE } from '@/api/types'
 import { ACCESS_ENUM, useLoginUserStore } from '@/stores/loginUser'
 import { consumeSseStream } from '@/utils/sse'
+import {
+  formatVisualSelectionLabel,
+  injectPreviewInspector,
+  isVisualEditMessage,
+  type VisualEditContext,
+} from '@/utils/visualEdit'
 
 interface ChatMessage {
   id?: number
@@ -44,10 +51,18 @@ const deploying = ref(false)
 const deployUrl = ref('')
 const previewHtml = ref('')
 const previewUrl = ref('')
+const previewIframeRef = ref<HTMLIFrameElement | null>(null)
+const visualEditMode = ref(false)
+const selectedVisualContext = ref<VisualEditContext | null>(null)
 const messageListRef = ref<HTMLElement | null>(null)
 const historyLoading = ref(false)
 const historyHasMore = ref(false)
 const historyNextCursor = ref<number | null>(null)
+/** Vue 构建阶段：日志仅展示在右侧，不混入左侧对话 */
+const vueBuilding = ref(false)
+const buildLogs = ref<string[]>([])
+const buildError = ref('')
+const buildLogRef = ref<HTMLElement | null>(null)
 
 let abortController: AbortController | null = null
 
@@ -57,6 +72,64 @@ const isLogin = computed(
   () => !!loginUserStore.loginUser.id && loginUserStore.loginUser.userRole !== ACCESS_ENUM.NOT_LOGIN,
 )
 const isVueProject = computed(() => codeGenType.value === CODE_GEN_TYPE.VUE_PROJECT)
+const hasPreview = computed(() => !!previewUrl.value || !!previewHtml.value)
+const showBuildPanel = computed(
+  () => isVueProject.value && (vueBuilding.value || (!!buildError.value && !previewUrl.value) || (buildLogs.value.length > 0 && !previewUrl.value)),
+)
+const visualSelectionLabel = computed(() => formatVisualSelectionLabel(selectedVisualContext.value))
+const previewSrcdoc = computed(() =>
+  previewHtml.value ? injectPreviewInspector(previewHtml.value) : '',
+)
+
+const postToPreview = (payload: object) => {
+  const win = previewIframeRef.value?.contentWindow
+  if (win) {
+    win.postMessage(payload, '*')
+  }
+}
+
+const syncVisualEditMode = () => {
+  postToPreview({ type: 'VISUAL_EDIT_MODE', enabled: visualEditMode.value })
+}
+
+const toggleVisualEditMode = () => {
+  if (!hasPreview.value) {
+    message.warning('请先生成或加载预览页面')
+    return
+  }
+  visualEditMode.value = !visualEditMode.value
+  syncVisualEditMode()
+  if (!visualEditMode.value) {
+    selectedVisualContext.value = null
+  }
+}
+
+const clearVisualSelection = () => {
+  selectedVisualContext.value = null
+  postToPreview({ type: 'VISUAL_EDIT_CLEAR' })
+}
+
+const onPreviewIframeLoad = () => {
+  syncVisualEditMode()
+  if (selectedVisualContext.value?.elementId) {
+    postToPreview({ type: 'VISUAL_EDIT_HIGHLIGHT', elementId: selectedVisualContext.value.elementId })
+  }
+}
+
+const onVisualEditMessage = (event: MessageEvent) => {
+  if (!isVisualEditMessage(event.data)) return
+  if (event.source !== previewIframeRef.value?.contentWindow) return
+  if (event.data.type === 'VISUAL_EDIT_SELECT') {
+    selectedVisualContext.value = { ...event.data.payload, editMode: 'chat' }
+    visualEditMode.value = true
+  } else if (event.data.type === 'VISUAL_EDIT_CLEAR') {
+    selectedVisualContext.value = null
+  }
+}
+
+watch(visualEditMode, () => {
+  syncVisualEditMode()
+})
 
 function isToolCallLikeText(text: string): boolean {
   const t = text.trim()
@@ -111,6 +184,26 @@ const scrollToBottom = () => {
     const el = messageListRef.value
     if (el) el.scrollTop = el.scrollHeight
   })
+}
+
+const scrollBuildLogToBottom = () => {
+  nextTick(() => {
+    const el = buildLogRef.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
+const appendBuildLog = (line: string) => {
+  if (!line.trim()) return
+  vueBuilding.value = true
+  buildLogs.value.push(line)
+  scrollBuildLogToBottom()
+}
+
+const resetBuildState = () => {
+  vueBuilding.value = false
+  buildLogs.value = []
+  buildError.value = ''
 }
 
 const mapHistoryToMessage = (item: ChatHistoryVO): ChatMessage => ({
@@ -212,7 +305,15 @@ const generate = async (userPrompt: string) => {
     return
   }
 
+  const visualContext = selectedVisualContext.value
+
   messages.value.push({ role: 'user', content: prompt })
+  if (visualContext?.tagName) {
+    const last = messages.value[messages.value.length - 1]
+    if (last) {
+      last.content = `[点选 ${formatVisualSelectionLabel(visualContext)}] ${prompt}`
+    }
+  }
   const aiIndex = messages.value.push({ role: 'ai', content: '', streaming: true }) - 1
   const aiMsg = messages.value[aiIndex] as ChatMessage
   scrollToBottom()
@@ -220,13 +321,14 @@ const generate = async (userPrompt: string) => {
   generating.value = true
   previewUrl.value = ''
   previewHtml.value = ''
+  resetBuildState()
   let raw = ''
   const toolLogs: string[] = []
   let vuePreviewReady = false
 
   closeStream()
   abortController = new AbortController()
-  const url = buildChatGenUrl(appId.value, prompt)
+  const url = buildChatGenUrl(appId.value, prompt, visualContext)
 
   await consumeSseStream({
     url,
@@ -248,11 +350,15 @@ const generate = async (userPrompt: string) => {
         aiMsg.content = formatVueAiContent(raw, toolLogs)
         scrollToBottom()
       } else if (eventName === 'build-log') {
-        toolLogs.push(`⚙ ${data}`)
-        aiMsg.content = formatVueAiContent(raw, toolLogs)
+        appendBuildLog(data)
+      } else if (eventName === 'quality-report') {
+        appendBuildLog(`✓ 质量检测：${data}`)
       } else if (eventName === 'preview-ready') {
         vuePreviewReady = true
+        vueBuilding.value = false
         finishPreview()
+      } else if (eventName === 'cover-ready') {
+        message.success('应用封面已生成')
       }
     },
     onDone: () => {
@@ -262,15 +368,25 @@ const generate = async (userPrompt: string) => {
         previewHtml.value = extractHtml(raw)
         finishPreview()
       } else if (vuePreviewReady) {
+        vueBuilding.value = false
         finishPreview()
       } else {
-        message.warning('Vue 工程尚未构建完成，请等待构建结束或重试')
+        vueBuilding.value = false
+        buildError.value = buildError.value || 'Vue 工程尚未构建完成，请查看右侧构建日志'
+        message.warning('Vue 工程构建未完成，请查看右侧构建日志')
       }
       closeStream()
+      selectedVisualContext.value = null
+      visualEditMode.value = false
     },
     onError: (errMsg) => {
       aiMsg.streaming = false
       generating.value = false
+      vueBuilding.value = false
+      buildError.value = errMsg
+      if (buildLogs.value.length === 0) {
+        appendBuildLog(`❌ ${errMsg}`)
+      }
       previewUrl.value = ''
       if (raw.trim() || toolLogs.length) {
         aiMsg.content = isVueProject.value ? formatVueAiContent(raw, toolLogs) : raw
@@ -288,6 +404,8 @@ const generate = async (userPrompt: string) => {
         message.error(errMsg)
       }
       closeStream()
+      selectedVisualContext.value = null
+      visualEditMode.value = false
     },
   })
 }
@@ -332,6 +450,7 @@ const handleDeploy = async () => {
 }
 
 onMounted(async () => {
+  window.addEventListener('message', onVisualEditMessage)
   await loginUserStore.fetchLoginUser()
   await loadApp()
   await loadChatHistory()
@@ -343,7 +462,10 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(closeStream)
+onBeforeUnmount(() => {
+  window.removeEventListener('message', onVisualEditMessage)
+  closeStream()
+})
 </script>
 
 <template>
@@ -385,7 +507,9 @@ onBeforeUnmount(closeStream)
             </a-avatar>
             <div class="msg__bubble">
               <pre class="msg__content">{{ msg.content }}</pre>
-              <span v-if="msg.streaming" class="msg__cursor">▋</span>
+              <span v-if="msg.streaming" class="msg__cursor" aria-hidden="true">
+                <LoadingOutlined spin />
+              </span>
             </div>
             <a-avatar
               v-if="msg.role === 'user'"
@@ -398,11 +522,16 @@ onBeforeUnmount(closeStream)
         </div>
 
         <div class="chat-input">
+          <div v-if="selectedVisualContext" class="chat-input__selection">
+            <a-tag closable color="green" @close="clearVisualSelection">
+              已选中：{{ visualSelectionLabel }}
+            </a-tag>
+          </div>
           <a-textarea
             v-model:value="inputText"
             :rows="3"
             :bordered="false"
-            placeholder="描述需求、页面或具体功能，可以一步步完善生成效果"
+            placeholder="描述修改需求；开启右侧「点选编辑」后点击预览元素可精确定位"
             @press-enter.prevent="handleSend"
           />
           <div class="chat-input__bar">
@@ -415,9 +544,13 @@ onBeforeUnmount(closeStream)
                 <template #icon><ThunderboltOutlined /></template>
                 优化
               </a-button>
-              <a-button type="text" size="small">
+              <a-button
+                size="small"
+                :type="visualEditMode ? 'primary' : 'text'"
+                @click="toggleVisualEditMode"
+              >
                 <template #icon><EditOutlined /></template>
-                编辑
+                点选编辑
               </a-button>
             </div>
             <a-button
@@ -437,6 +570,15 @@ onBeforeUnmount(closeStream)
         <div class="preview-panel__toolbar">
           <span class="preview-panel__hint">生成后的网页展示</span>
           <div class="preview-panel__actions">
+            <a-button
+              size="small"
+              :type="visualEditMode ? 'primary' : 'default'"
+              :disabled="!hasPreview"
+              @click="toggleVisualEditMode"
+            >
+              <template #icon><EditOutlined /></template>
+              点选编辑
+            </a-button>
             <a v-if="deployUrl" :href="deployUrl" target="_blank" class="preview-panel__link">
               已部署：{{ deployUrl }}
             </a>
@@ -448,21 +590,33 @@ onBeforeUnmount(closeStream)
         <div class="preview-panel__stage">
           <iframe
             v-if="previewUrl"
+            ref="previewIframeRef"
             class="preview-panel__iframe"
             :src="previewUrl"
             sandbox="allow-scripts allow-same-origin"
+            @load="onPreviewIframeLoad"
           />
           <iframe
             v-else-if="previewHtml"
+            ref="previewIframeRef"
             class="preview-panel__iframe"
-            :srcdoc="previewHtml"
+            :srcdoc="previewSrcdoc"
             sandbox="allow-scripts allow-same-origin"
+            @load="onPreviewIframeLoad"
           />
+          <div v-else-if="showBuildPanel" class="preview-panel__build">
+            <div class="preview-panel__build-header">
+              <LoadingOutlined v-if="vueBuilding" spin class="preview-panel__build-icon" />
+              <span>{{ vueBuilding ? '正在构建 Vue 工程…' : buildError ? '构建失败' : '构建日志' }}</span>
+            </div>
+            <p v-if="buildError" class="preview-panel__build-error">{{ buildError }}</p>
+            <pre ref="buildLogRef" class="preview-panel__build-log">{{ buildLogs.join('\n') }}</pre>
+          </div>
           <div v-else class="preview-panel__welcome">
             <h2 v-if="generating && isVueProject">生成中…</h2>
             <h2 v-else-if="isVueProject && !previewUrl">等待构建完成</h2>
             <h2 v-else>欢迎页！</h2>
-            <p v-if="generating && isVueProject">AI 正在创建 Vue 工程文件并执行 npm build</p>
+            <p v-if="generating && isVueProject">AI 正在创建 Vue 工程文件，构建日志将显示在此处</p>
             <p v-else-if="isVueProject && !previewUrl">构建成功后此处将展示网页预览</p>
             <p v-else>开始构建你的神奇应用！</p>
           </div>
@@ -567,13 +721,12 @@ onBeforeUnmount(closeStream)
 }
 
 .msg__cursor {
-  animation: blink 1s steps(2, start) infinite;
-}
-
-@keyframes blink {
-  to {
-    visibility: hidden;
-  }
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  vertical-align: middle;
+  color: #1677ff;
+  font-size: 14px;
 }
 
 .chat-input {
@@ -581,6 +734,10 @@ onBeforeUnmount(closeStream)
   background: #fff;
   border: 1px solid #eaeaea;
   border-radius: 12px;
+}
+
+.chat-input__selection {
+  padding: 8px 12px 0;
 }
 
 .chat-input__bar {
@@ -657,6 +814,53 @@ onBeforeUnmount(closeStream)
   margin: 0 0 8px;
   font-size: 28px;
   font-weight: 700;
+}
+
+.preview-panel__build {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+.preview-panel__build-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.preview-panel__build-icon {
+  color: #1677ff;
+}
+
+.preview-panel__build-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #ff7875;
+  background: rgba(255, 77, 79, 0.12);
+  border-radius: 8px;
+}
+
+.preview-panel__build-log {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #252526;
+  border-radius: 8px;
 }
 
 @media (max-width: 768px) {

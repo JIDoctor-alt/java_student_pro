@@ -3,6 +3,7 @@ package com.zhenq.controller;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.zhenq.annotation.AuthCheck;
@@ -14,6 +15,9 @@ import com.zhenq.constant.AppConstant;
 import com.zhenq.constant.UserConstant;
 import com.zhenq.config.AppProperties;
 import com.zhenq.core.AiCodeGeneratorFacade;
+import com.zhenq.core.cover.AppCoverService;
+import com.zhenq.core.visual.VisualEditPromptUtils;
+import com.zhenq.model.dto.visual.VisualEditContext;
 import com.zhenq.core.vue.VueProjectBuildService;
 import com.zhenq.core.vue.VueProjectCodegenExecutor;
 import com.zhenq.core.vue.VueProjectPathUtils;
@@ -35,6 +39,7 @@ import com.zhenq.model.vo.ChatHistoryCursorPageVO;
 import com.zhenq.service.AppService;
 import com.zhenq.service.ChatHistoryService;
 import com.zhenq.service.UserService;
+import com.zhenq.utils.AiErrorUtils;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.BeanUtils;
@@ -80,6 +85,9 @@ public class AppController {
 
     @Resource
     private AppProperties appProperties;
+
+    @Resource
+    private AppCoverService appCoverService;
 
     /**
      * 每页最大数量（用户侧分页限制）
@@ -214,6 +222,7 @@ public class AppController {
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chatToGenCode(@RequestParam Long appId,
                                     @RequestParam String message,
+                                    @RequestParam(required = false) String visualContext,
                                     HttpServletRequest request) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 id 错误");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "提示词不能为空");
@@ -228,14 +237,28 @@ public class AppController {
             typeEnum = CodeGenTypeEnum.HTML;
         }
 
+        VisualEditContext visualEditContext = parseVisualEditContext(visualContext);
+
         // 构建带记忆的 prompt，再保存用户消息（避免当前消息重复注入）
-        String promptWithMemory = chatHistoryService.buildPromptWithMemory(appId, message);
-        chatHistoryService.saveUserMessage(appId, loginUser.getId(), message);
+        String promptWithMemory = chatHistoryService.buildPromptWithMemory(appId, message, visualEditContext);
+        String savedMessage = VisualEditPromptUtils.formatUserMessage(message, visualEditContext);
+        chatHistoryService.saveUserMessage(appId, loginUser.getId(), savedMessage);
 
         if (CodeGenTypeEnum.VUE_PROJECT == typeEnum) {
             return chatToGenVueProject(appId, promptWithMemory);
         }
         return chatToGenNativeCode(appId, promptWithMemory, typeEnum);
+    }
+
+    private VisualEditContext parseVisualEditContext(String visualContextJson) {
+        if (StrUtil.isBlank(visualContextJson)) {
+            return null;
+        }
+        try {
+            return JSONUtil.toBean(visualContextJson, VisualEditContext.class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
@@ -257,10 +280,11 @@ public class AppController {
                             }
                         },
                         error -> {
-                            chatHistoryService.saveErrorMessage(appId, "生成失败：" + error.getMessage());
+                            String errMsg = AiErrorUtils.toUserMessage(error);
+                            chatHistoryService.saveErrorMessage(appId, "生成失败：" + errMsg);
                             try {
                                 emitter.send(SseEmitter.event().name("gen-error")
-                                        .data("生成失败：" + error.getMessage()));
+                                        .data("生成失败：" + errMsg));
                                 emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                                 emitter.complete();
                             } catch (IOException ignored) {
@@ -277,6 +301,8 @@ public class AppController {
                             } catch (IOException ignored) {
                                 emitter.complete();
                             }
+                            // 不阻塞 SSE：后台截图并回写 app.cover
+                            appCoverService.generateCoverAsync(appId);
                         }
                 );
         emitter.onTimeout(disposable::dispose);
@@ -309,17 +335,28 @@ public class AppController {
                     }
 
                     @Override
+                    public void onQualityReport(String summary) {
+                        sendSseEvent(emitter, "quality-report", summary);
+                    }
+
+                    @Override
                     public void onComplete(String fullText) {
                         chatHistoryService.saveAiMessage(appId, buildVueAiSummary(aiContentBuilder, fullText));
                         sendSseEvent(emitter, "preview-ready", "ok");
-                        sendSseEvent(emitter, "done", "[DONE]");
-                        emitter.complete();
+                        appCoverService.generateCoverAsync(appId, coverUrl -> {
+                            if (StrUtil.isNotBlank(coverUrl)) {
+                                sendSseEvent(emitter, "cover-ready", coverUrl);
+                            }
+                            sendSseEvent(emitter, "done", "[DONE]");
+                            emitter.complete();
+                        });
                     }
 
                     @Override
                     public void onError(String message) {
-                        chatHistoryService.saveErrorMessage(appId, message);
-                        sendSseEvent(emitter, "gen-error", message);
+                        String errMsg = AiErrorUtils.toUserMessage(message);
+                        chatHistoryService.saveErrorMessage(appId, errMsg);
+                        sendSseEvent(emitter, "gen-error", errMsg);
                         emitter.complete();
                     }
                 }));
@@ -365,6 +402,24 @@ public class AppController {
         ChatHistoryCursorPageVO pageVO = chatHistoryService.listHistoryByCursor(
                 queryRequest.getAppId(), queryRequest.getLastId(), pageSize);
         return ResultUtils.success(pageVO);
+    }
+
+    /**
+     * 手动生成应用封面（Selenium 截图预览页）
+     */
+    @PostMapping("/cover/generate")
+    public BaseResponse<String> generateAppCover(@RequestParam Long appId, HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 id 错误");
+        User loginUser = userService.getLoginUser(request);
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
+        if (!app.getUserId().equals(loginUser.getId()) && !userService.isAdmin(loginUser)) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        String coverUrl = appCoverService.generateCover(appId);
+        ThrowUtils.throwIf(StrUtil.isBlank(coverUrl), ErrorCode.OPERATION_ERROR,
+                "封面生成失败，请确认预览页可访问且本机已安装 Chrome");
+        return ResultUtils.success(coverUrl);
     }
 
     /**
