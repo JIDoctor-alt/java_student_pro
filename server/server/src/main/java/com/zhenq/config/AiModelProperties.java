@@ -90,12 +90,11 @@ public class AiModelProperties {
 
     private static Map<String, ScenarioModel> defaultScenarios() {
         Map<String, ScenarioModel> map = new LinkedHashMap<>();
-        map.put("html-stream", scenario("deepseek-chat", 0.7));
-        map.put("multi-file-stream", scenario("deepseek-chat", 0.7));
-        map.put("code-sync", scenario("deepseek-chat", 0.7));
-        map.put("code-retry", scenario("deepseek-chat", 0.3));
-        // Vue Agent 默认仍用 chat；复杂项目可在 yml 改为 deepseek-reasoner
-        map.put("vue-agent", scenario("deepseek-chat", 0.5));
+        map.put("html-stream", scenario("deepseek-v4-flash", 0.7));
+        map.put("multi-file-stream", scenario("deepseek-v4-flash", 0.7));
+        map.put("code-sync", scenario("deepseek-v4-flash", 0.7));
+        map.put("code-retry", scenario("deepseek-v4-flash", 0.3));
+        map.put("vue-agent", scenario("deepseek-v4-pro", 0.5));
         map.put("prompt-optimize", scenario("qwen-turbo", 0.7));
         return map;
     }

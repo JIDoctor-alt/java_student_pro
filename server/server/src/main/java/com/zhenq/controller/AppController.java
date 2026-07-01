@@ -30,7 +30,7 @@ import com.zhenq.model.dto.app.AppAdminUpdateRequest;
 import com.zhenq.model.dto.app.AppDeployRequest;
 import com.zhenq.model.dto.app.AppQueryRequest;
 import com.zhenq.model.dto.app.AppUpdateRequest;
-import com.zhenq.ai.PromptOptimizeService;
+import com.zhenq.ai.PromptOptimizeFactory;
 import com.zhenq.model.dto.app.PromptOptimizeRequest;
 import com.zhenq.model.dto.chat.ChatHistoryQueryRequest;
 import com.zhenq.model.entity.App;
@@ -44,6 +44,7 @@ import com.zhenq.service.UserService;
 import com.zhenq.utils.AiErrorUtils;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.BeanUtils;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -92,7 +93,7 @@ public class AppController {
     private AppCoverService appCoverService;
 
     @Resource
-    private PromptOptimizeService promptOptimizeService;
+    private PromptOptimizeFactory promptOptimizeFactory;
 
     /**
      * 每页最大数量（用户侧分页限制）
@@ -147,7 +148,7 @@ public class AppController {
                 %s
                 """.formatted(typeLabel, prompt.trim());
         try {
-            String optimized = promptOptimizeService.optimizePrompt(userMessage);
+            String optimized = promptOptimizeFactory.getService().optimizePrompt(userMessage);
             ThrowUtils.throwIf(StrUtil.isBlank(optimized), ErrorCode.SYSTEM_ERROR, "优化结果为空");
             return ResultUtils.success(optimized.trim());
         } catch (Exception e) {
@@ -527,6 +528,70 @@ public class AppController {
         // 返回可访问地址
         String deployUrl = String.format("%s/%s/", appProperties.getDeployHost(), deployKey);
         return ResultUtils.success(deployUrl);
+    }
+
+    /**
+     * 下载应用源代码：将生成的源码目录打包为 zip 返回
+     * <p>Vue 工程会排除 node_modules / dist 等体积大或可重建的目录。
+     */
+    @GetMapping("/download")
+    public void downloadCode(@RequestParam Long appId, HttpServletRequest request,
+                             HttpServletResponse response) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 id 错误");
+        User loginUser = userService.getLoginUser(request);
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
+        // 仅本人或管理员可下载
+        if (!app.getUserId().equals(loginUser.getId()) && !userService.isAdmin(loginUser)) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        // 源代码目录：类型_appId
+        String codeGenType = StrUtil.isNotBlank(app.getCodeGenType())
+                ? app.getCodeGenType() : CodeGenTypeEnum.HTML.getValue();
+        String sourceDirPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + codeGenType + "_" + appId;
+        File sourceDir = new File(sourceDirPath);
+        ThrowUtils.throwIf(!sourceDir.exists() || !sourceDir.isDirectory(),
+                ErrorCode.OPERATION_ERROR, "请先生成应用代码后再下载");
+        // 打包时排除的目录：体积大或可由源码重建
+        java.io.FileFilter zipFilter = file -> {
+            String name = file.getName();
+            return !"node_modules".equals(name) && !"dist".equals(name)
+                    && !".git".equals(name) && !".idea".equals(name);
+        };
+        File zipFile = null;
+        try {
+            zipFile = File.createTempFile("app_" + appId + "_", ".zip");
+            cn.hutool.core.util.ZipUtil.zip(zipFile, java.nio.charset.StandardCharsets.UTF_8,
+                    false, zipFilter, sourceDir);
+            String downloadName = sanitizeFileName(app.getAppName()) + "_" + appId + ".zip";
+            response.setContentType("application/octet-stream");
+            response.setContentLengthLong(zipFile.length());
+            response.setHeader("Content-Disposition",
+                    "attachment; filename=\"app_" + appId + ".zip\"; filename*=UTF-8''"
+                            + java.net.URLEncoder.encode(downloadName, java.nio.charset.StandardCharsets.UTF_8)
+                                    .replace("+", "%20"));
+            try (java.io.InputStream in = java.nio.file.Files.newInputStream(zipFile.toPath())) {
+                in.transferTo(response.getOutputStream());
+            }
+            response.flushBuffer();
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "代码打包失败：" + e.getMessage());
+        } finally {
+            if (zipFile != null) {
+                //noinspection ResultOfMethodCallIgnored
+                zipFile.delete();
+            }
+        }
+    }
+
+    /**
+     * 清洗文件名中的非法字符，避免下载文件名异常
+     */
+    private String sanitizeFileName(String name) {
+        if (StrUtil.isBlank(name)) {
+            return "app";
+        }
+        return name.replaceAll("[\\\\/:*?\"<>|\\s]+", "_");
     }
 
     // endregion

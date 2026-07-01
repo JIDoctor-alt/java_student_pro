@@ -34,14 +34,14 @@ langchain4j:
     chat-model:
       base-url: https://api.deepseek.com/v1
       api-key: ${DEEPSEEK_API_KEY:}
-      model-name: deepseek-chat
+      model-name: deepseek-v4-flash
       temperature: 0.7
       log-requests: true
       log-responses: true
     streaming-chat-model:
       base-url: https://api.deepseek.com/v1
       api-key: ${DEEPSEEK_API_KEY:}
-      model-name: deepseek-chat
+      model-name: deepseek-v4-flash
       temperature: 0.7
       log-requests: true
       log-responses: true
@@ -79,10 +79,10 @@ app:
         log-requests: true
         log-responses: true
       multi-file-stream:
-        model-name: deepseek-chat
+        model-name: deepseek-v4-flash
         temperature: 0.7
       code-sync:
-        model-name: deepseek-chat
+        model-name: deepseek-v4-flash
         temperature: 0.7
       # 质量修正重试：低成本 Qwen
       code-retry:
@@ -94,7 +94,7 @@ app:
         log-requests: true
         log-responses: true
       vue-agent:
-        model-name: deepseek-chat
+        model-name: deepseek-v4-pro
         temperature: 0.5
       # 首页提示词优化：低成本 Qwen
       prompt-optimize:

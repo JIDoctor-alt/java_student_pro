@@ -5,15 +5,17 @@ import { message } from 'ant-design-vue'
 import {
   ArrowUpOutlined,
   CloudUploadOutlined,
+  DownloadOutlined,
   EditOutlined,
   LoadingOutlined,
+  PauseOutlined,
   PaperClipOutlined,
   ReloadOutlined,
   RobotOutlined,
   ThunderboltOutlined,
   UserOutlined,
 } from '@ant-design/icons-vue'
-import { buildChatGenUrl, buildPreviewUrl, checkPreviewReady, deployApp, getAppVoById, listChatHistory } from '@/api/app'
+import { buildChatGenUrl, buildPreviewUrl, checkPreviewReady, deployApp, downloadCode, getAppVoById, listChatHistory } from '@/api/app'
 import type { AppVO, ChatHistoryVO } from '@/api/types'
 import { CODE_GEN_TYPE } from '@/api/types'
 import { ACCESS_ENUM, useLoginUserStore } from '@/stores/loginUser'
@@ -48,6 +50,7 @@ const messages = ref<ChatMessage[]>([])
 const inputText = ref('')
 const generating = ref(false)
 const deploying = ref(false)
+const downloading = ref(false)
 const deployUrl = ref('')
 const previewHtml = ref('')
 const previewUrl = ref('')
@@ -65,6 +68,8 @@ const buildError = ref('')
 const buildLogRef = ref<HTMLElement | null>(null)
 
 let abortController: AbortController | null = null
+/** 当前正在流式输出的 AI 消息，用于暂停时收尾 */
+let currentAiMsg: ChatMessage | null = null
 
 const appName = computed(() => app.value?.appName || '智能助手')
 const codeGenType = computed(() => app.value?.codeGenType || 'html')
@@ -316,6 +321,7 @@ const generate = async (userPrompt: string) => {
   }
   const aiIndex = messages.value.push({ role: 'ai', content: '', streaming: true }) - 1
   const aiMsg = messages.value[aiIndex] as ChatMessage
+  currentAiMsg = aiMsg
   scrollToBottom()
 
   generating.value = true
@@ -364,6 +370,7 @@ const generate = async (userPrompt: string) => {
     onDone: () => {
       aiMsg.streaming = false
       generating.value = false
+      currentAiMsg = null
       if (!isVueProject.value) {
         previewHtml.value = extractHtml(raw)
         finishPreview()
@@ -382,6 +389,7 @@ const generate = async (userPrompt: string) => {
     onError: (errMsg) => {
       aiMsg.streaming = false
       generating.value = false
+      currentAiMsg = null
       vueBuilding.value = false
       buildError.value = errMsg
       if (buildLogs.value.length === 0) {
@@ -417,6 +425,30 @@ const handleSend = () => {
   generate(text)
 }
 
+/**
+ * 暂停/停止当前生成：中断 SSE 流并收尾 UI 状态
+ * 说明：abort 后 sse 工具会静默返回，不再触发 onDone/onError，需在此手动收尾
+ */
+const handleStop = () => {
+  if (!generating.value) return
+  closeStream()
+  generating.value = false
+  vueBuilding.value = false
+  if (currentAiMsg) {
+    currentAiMsg.streaming = false
+    if (currentAiMsg.content.trim()) {
+      currentAiMsg.content += '\n\n⏹ 已停止生成'
+    } else {
+      currentAiMsg.content = '⏹ 已停止生成'
+    }
+    currentAiMsg = null
+  }
+  if (isVueProject.value && !previewUrl.value) {
+    buildError.value = buildError.value || '已停止生成'
+  }
+  message.info('已停止生成')
+}
+
 const handleRefresh = async () => {
   if (isVueProject.value) {
     await loadVuePreviewIfReady()
@@ -449,6 +481,22 @@ const handleDeploy = async () => {
   }
 }
 
+const handleDownload = async () => {
+  if (generating.value) {
+    message.warning('请等待代码生成完成再下载')
+    return
+  }
+  downloading.value = true
+  try {
+    await downloadCode(appId.value, app.value?.appName)
+    message.success('代码已开始下载')
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : '下载失败')
+  } finally {
+    downloading.value = false
+  }
+}
+
 onMounted(async () => {
   window.addEventListener('message', onVisualEditMessage)
   await loginUserStore.fetchLoginUser()
@@ -473,10 +521,16 @@ onBeforeUnmount(() => {
     <!-- 顶部栏 -->
     <header class="chat-page__bar">
       <div class="chat-page__name">{{ appName }}</div>
-      <a-button type="primary" :loading="deploying" @click="handleDeploy">
-        <template #icon><CloudUploadOutlined /></template>
-        部署
-      </a-button>
+      <div class="chat-page__actions">
+        <a-button :loading="downloading" @click="handleDownload">
+          <template #icon><DownloadOutlined /></template>
+          下载代码
+        </a-button>
+        <a-button type="primary" :loading="deploying" @click="handleDeploy">
+          <template #icon><CloudUploadOutlined /></template>
+          部署
+        </a-button>
+      </div>
     </header>
 
     <div class="chat-page__body">
@@ -553,10 +607,20 @@ onBeforeUnmount(() => {
                 点选编辑
               </a-button>
             </div>
+            <a-tooltip v-if="generating" title="停止生成">
+              <a-button
+                type="primary"
+                danger
+                shape="circle"
+                @click="handleStop"
+              >
+                <template #icon><PauseOutlined /></template>
+              </a-button>
+            </a-tooltip>
             <a-button
+              v-else
               type="primary"
               shape="circle"
-              :loading="generating"
               @click="handleSend"
             >
               <template #icon><ArrowUpOutlined /></template>
@@ -646,6 +710,11 @@ onBeforeUnmount(() => {
 .chat-page__name {
   font-size: 16px;
   font-weight: 600;
+}
+
+.chat-page__actions {
+  display: flex;
+  gap: 10px;
 }
 
 .chat-page__body {

@@ -188,3 +188,55 @@ export interface ChatHistoryQueryRequest {
   pageSize?: number
   lastId?: number
 }
+
+export interface AiModelOptionVO {
+  id: string
+  name: string
+  description?: string
+}
+
+export interface AiModelProviderVO {
+  id: string
+  name: string
+  docsUrl: string
+  defaultBaseUrl: string
+  models: AiModelOptionVO[]
+}
+
+export interface AiModelScenarioConfigVO {
+  scenarioKey: string
+  scenarioName: string
+  providerId?: string
+  baseUrl?: string
+  apiKey?: string
+  modelName?: string
+  temperature?: number
+  maxTokens?: number
+  logRequests?: boolean
+  logResponses?: boolean
+}
+
+export interface AiModelConfigVO {
+  providerId: string
+  baseUrl: string
+  apiKey: string
+  apiKeyConfigured: boolean
+  scenarios: AiModelScenarioConfigVO[]
+}
+
+export interface AiModelConfigUpdateRequest {
+  providerId: string
+  baseUrl?: string
+  apiKey?: string
+  scenarios: Array<{
+    scenarioKey: string
+    providerId?: string
+    baseUrl?: string
+    apiKey?: string
+    modelName?: string
+    temperature?: number
+    maxTokens?: number
+    logRequests?: boolean
+    logResponses?: boolean
+  }>
+}

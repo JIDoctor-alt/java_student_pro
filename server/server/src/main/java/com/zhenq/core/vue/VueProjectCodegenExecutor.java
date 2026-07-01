@@ -3,7 +3,7 @@ package com.zhenq.core.vue;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import com.zhenq.ai.VueProjectAgentService;
+import com.zhenq.ai.VueProjectAgentFactory;
 import com.zhenq.core.quality.CodeQualityReport;
 import com.zhenq.core.workflow.CodeGenWorkflowExecutor;
 import com.zhenq.model.enums.CodeGenTypeEnum;
@@ -20,7 +20,7 @@ import org.springframework.stereotype.Service;
 public class VueProjectCodegenExecutor {
 
     @Resource
-    private VueProjectAgentService vueProjectAgentService;
+    private VueProjectAgentFactory vueProjectAgentFactory;
 
     @Resource
     private VueProjectBuildService vueProjectBuildService;
@@ -40,7 +40,7 @@ public class VueProjectCodegenExecutor {
                 prompt, CodeGenTypeEnum.VUE_PROJECT, appId);
         StringBuilder fullText = new StringBuilder();
         try {
-            vueProjectAgentService.generateVueProjectStream(enrichedPrompt)
+            vueProjectAgentFactory.getAgent().generateVueProjectStream(enrichedPrompt)
                     .onPartialResponse(partial -> {
                         if (shouldSkipPartial(partial)) {
                             return;

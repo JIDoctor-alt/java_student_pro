@@ -27,6 +27,7 @@ const allMenus: AppMenuItem[] = [
   { key: '/about', label: '关于', title: '关于' },
   { key: '/admin/user', label: '用户管理', title: '用户管理', access: ACCESS_ENUM.ADMIN },
   { key: '/admin/app', label: '应用管理', title: '应用管理', access: ACCESS_ENUM.ADMIN },
+  { key: '/admin/ai-model', label: '模型接入', title: '模型接入', access: ACCESS_ENUM.ADMIN },
 ]
 
 // 根据登录用户角色过滤可见菜单
