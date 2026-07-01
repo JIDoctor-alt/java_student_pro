@@ -48,6 +48,12 @@ langchain4j:
 
 # 应用自定义配置
 app:
+  # 初始管理员自举：全新数据库首次启动时若无管理员则自动创建
+  admin:
+    init-enabled: true
+    account: admin
+    # 留空则启动时随机生成密码并打印到日志；也可通过环境变量 ADMIN_INIT_PASSWORD 注入
+    password: ${ADMIN_INIT_PASSWORD:admin12345}
   server-base-url: http://127.0.0.1:8123/api
   cover-enabled: true
   cover-width: 1280

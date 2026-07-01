@@ -22,6 +22,12 @@ spring:
       database: 1
 
 app:
+  # 初始管理员自举：全新数据库首次启动时若无管理员则自动创建
+  admin:
+    init-enabled: true
+    account: ${ADMIN_INIT_ACCOUNT:admin}
+    # 生产环境请通过环境变量 ADMIN_INIT_PASSWORD 注入；留空则随机生成并打印到日志
+    password: ${ADMIN_INIT_PASSWORD:}
   deploy-host: http://124.70.195.81/api/static
   server-base-url: http://124.70.195.81/api
   cover-enabled: true
