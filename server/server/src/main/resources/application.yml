@@ -24,7 +24,7 @@ spring:
     redis:
       host: localhost
       port: 6379
-      # 使用独立 db，避免与其他项目（如 yuaicodemother）在 db0 的 Session 冲突
+      # 使用独立 db，避免与默认 db0 上的其他 Redis 数据冲突
       database: 1
 
 # LangChain4j 接入 DeepSeek（OpenAI 兼容协议）
@@ -63,6 +63,48 @@ app:
   # LangGraph4j Checkpoint 持久化到 Redis（使用独立 db，避免与 Session 冲突）
   workflow-checkpoint-enabled: true
   workflow-checkpoint-redis-database: 2
+  # 分场景 AI 模型（成本优化：简单任务可走 DashScope qwen-turbo，复杂 Agent 用 DeepSeek）
+  # 说明：LangChain4j 1.17 尚无 routing-chat-model 自动配置，场景路由见 AiModelRouter
+  ai-model:
+    base-url: https://api.deepseek.com/v1
+    api-key: ${DEEPSEEK_API_KEY:}
+    scenarios:
+      # HTML 流式：低成本 Qwen（DashScope OpenAI 兼容模式）
+      html-stream:
+        base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        api-key: ${DASHSCOPE_API_KEY:}
+        model-name: qwen-turbo
+        temperature: 0.7
+        max-tokens: 8192
+        log-requests: true
+        log-responses: true
+      multi-file-stream:
+        model-name: deepseek-chat
+        temperature: 0.7
+      code-sync:
+        model-name: deepseek-chat
+        temperature: 0.7
+      # 质量修正重试：低成本 Qwen
+      code-retry:
+        base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        api-key: ${DASHSCOPE_API_KEY:}
+        model-name: qwen-turbo
+        temperature: 0.3
+        max-tokens: 8192
+        log-requests: true
+        log-responses: true
+      vue-agent:
+        model-name: deepseek-chat
+        temperature: 0.5
+      # 首页提示词优化：低成本 Qwen
+      prompt-optimize:
+        base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        api-key: ${DASHSCOPE_API_KEY:}
+        model-name: qwen-turbo
+        temperature: 0.7
+        max-tokens: 2048
+        log-requests: true
+        log-responses: true
 
 # 腾讯云 COS 对象存储（封面截图上传，本地开发可留空以使用 /cover/** 静态目录）
 cos:

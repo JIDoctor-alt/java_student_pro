@@ -121,6 +121,11 @@ export interface AppAddRequest {
   codeGenType?: string
 }
 
+export interface PromptOptimizeRequest {
+  prompt: string
+  codeGenType?: string
+}
+
 export interface AppUpdateRequest {
   id: number
   appName?: string

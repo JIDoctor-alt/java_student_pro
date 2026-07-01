@@ -35,7 +35,7 @@ interface ChatMessage {
 const WELCOME_MESSAGE: ChatMessage = {
   role: 'ai',
   content:
-    '你好！我是 NoCode，你的 AI 应用开发助手。\n\n我可以帮你：\n· 构建结构化的页面与交互\n· 集成数据与样式美化\n· 一句话生成可运行的网页应用\n\n告诉我你想要什么样的应用，我立即为你生成！',
+    '你好！我是 ZqCode，你的 AI 应用开发助手。\n\n我可以帮你：\n· 构建结构化的页面与交互\n· 集成数据与样式美化\n· 一句话生成可运行的网页应用\n\n告诉我你想要什么样的应用，我立即为你生成！',
 }
 
 const route = useRoute()

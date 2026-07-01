@@ -25,11 +25,12 @@ const handleSubmit = async () => {
       loginUserStore.setLoginUser(res.data)
       message.success('登录成功')
       const redirect = (route.query.redirect as string) || '/'
-      // redirect 可能是完整 url，做个兜底
       router.push(redirect.startsWith('http') ? '/' : redirect)
     } else {
       message.error(res.message || '登录失败')
     }
+  } catch {
+    // 错误提示由 request 拦截器统一处理
   } finally {
     loading.value = false
   }

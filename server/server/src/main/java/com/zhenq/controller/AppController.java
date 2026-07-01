@@ -30,6 +30,8 @@ import com.zhenq.model.dto.app.AppAdminUpdateRequest;
 import com.zhenq.model.dto.app.AppDeployRequest;
 import com.zhenq.model.dto.app.AppQueryRequest;
 import com.zhenq.model.dto.app.AppUpdateRequest;
+import com.zhenq.ai.PromptOptimizeService;
+import com.zhenq.model.dto.app.PromptOptimizeRequest;
 import com.zhenq.model.dto.chat.ChatHistoryQueryRequest;
 import com.zhenq.model.entity.App;
 import com.zhenq.model.entity.User;
@@ -89,6 +91,9 @@ public class AppController {
     @Resource
     private AppCoverService appCoverService;
 
+    @Resource
+    private PromptOptimizeService promptOptimizeService;
+
     /**
      * 每页最大数量（用户侧分页限制）
      */
@@ -122,6 +127,33 @@ public class AppController {
         boolean result = appService.save(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         return ResultUtils.success(app.getId());
+    }
+
+    /**
+     * 优化用户输入的应用描述提示词
+     */
+    @PostMapping("/prompt/optimize")
+    public BaseResponse<String> optimizePrompt(@RequestBody PromptOptimizeRequest optimizeRequest,
+                                               HttpServletRequest request) {
+        ThrowUtils.throwIf(optimizeRequest == null, ErrorCode.PARAMS_ERROR);
+        String prompt = optimizeRequest.getPrompt();
+        ThrowUtils.throwIf(StrUtil.isBlank(prompt), ErrorCode.PARAMS_ERROR, "提示词不能为空");
+        userService.getLoginUser(request);
+        CodeGenTypeEnum typeEnum = CodeGenTypeEnum.getEnumByValue(optimizeRequest.getCodeGenType());
+        String typeLabel = typeEnum != null ? typeEnum.getValue() : CodeGenTypeEnum.HTML.getValue();
+        String userMessage = """
+                【生成类型】%s
+                【用户原始提示词】
+                %s
+                """.formatted(typeLabel, prompt.trim());
+        try {
+            String optimized = promptOptimizeService.optimizePrompt(userMessage);
+            ThrowUtils.throwIf(StrUtil.isBlank(optimized), ErrorCode.SYSTEM_ERROR, "优化结果为空");
+            return ResultUtils.success(optimized.trim());
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                    "提示词优化失败：" + AiErrorUtils.toUserMessage(e));
+        }
     }
 
     /**

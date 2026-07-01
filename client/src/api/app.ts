@@ -10,6 +10,7 @@ import type {
   ChatHistoryQueryRequest,
   DeleteRequest,
   Page,
+  PromptOptimizeRequest,
 } from './types'
 
 /**
@@ -22,6 +23,14 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localho
  */
 export async function addApp(body: AppAddRequest) {
   const res = await request.post<BaseResponse<number>>('/app/add', body)
+  return res.data
+}
+
+/**
+ * 优化应用描述提示词
+ */
+export async function optimizePrompt(body: PromptOptimizeRequest) {
+  const res = await request.post<BaseResponse<string>>('/app/prompt/optimize', body)
   return res.data
 }
 

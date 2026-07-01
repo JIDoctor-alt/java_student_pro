@@ -20,7 +20,7 @@ public final class AiErrorUtils {
             return "生成失败，请稍后重试";
         }
         if (message.contains("Authentication Fails") || message.contains("Bearer sk-")) {
-            return "DeepSeek API Key 未配置或无效。请设置环境变量 DEEPSEEK_API_KEY（sk- 开头），"
+            return "AI API Key 未配置或无效。请设置 DEEPSEEK_API_KEY / DASHSCOPE_API_KEY，"
                     + "或创建 application-local.yml 后重启后端";
         }
         return message;

@@ -3,17 +3,15 @@ package com.zhenq.ai;
 import com.zhenq.ai.model.HtmlCodeResult;
 import com.zhenq.ai.model.MultiFileCodeResult;
 import dev.langchain4j.service.SystemMessage;
-import dev.langchain4j.service.spring.AiService;
 import reactor.core.publisher.Flux;
 
 /**
  * AI 代码生成服务（LangChain4j AiService）
  * <p>
- * 通过 {@link AiService} 自动装配底层的 ChatModel / StreamingChatModel（接入 DeepSeek）。
+ * 由 {@link RoutingAiCodeGeneratorService} 按场景注入不同 ChatModel，实现成本优化。
  * 结构化输出方法返回 POJO，由 LangChain4j 自动完成 JSON 解析；
  * 流式方法返回 {@link Flux}，逐 token 输出，提升用户体验。
  */
-@AiService
 public interface AiCodeGeneratorService {
 
     /**
