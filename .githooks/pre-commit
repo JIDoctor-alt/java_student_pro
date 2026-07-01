@@ -1,0 +1,27 @@
+# Auto-export MySQL snapshot before commit (included in push to GitHub)
+# Install: scripts/install-git-hooks.ps1  OR  git config core.hooksPath .githooks
+
+set -e
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SNAPSHOT="$ROOT/server/server/src/main/resources/sql/data/student_pro_snapshot.sql"
+
+export_script=""
+if [ -f "$ROOT/scripts/db-export.sh" ]; then
+  export_script="$ROOT/scripts/db-export.sh"
+elif [ -f "$ROOT/scripts/db-export.ps1" ]; then
+  powershell -NoProfile -ExecutionPolicy Bypass -File "$ROOT/scripts/db-export.ps1" || true
+  git add "$SNAPSHOT" 2>/dev/null || true
+  exit 0
+fi
+
+if [ -n "$export_script" ]; then
+  if bash "$export_script"; then
+    git add "$SNAPSHOT" 2>/dev/null || true
+    echo "[pre-commit] database snapshot exported and staged"
+  else
+    echo "[pre-commit] skip: database export failed (commit continues without new snapshot)"
+  fi
+fi
+
+exit 0

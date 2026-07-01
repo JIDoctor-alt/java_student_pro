@@ -1,0 +1,13 @@
+# Remind to commit snapshot if export was skipped
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SNAPSHOT="$ROOT/server/server/src/main/resources/sql/data/student_pro_snapshot.sql"
+
+if [ -f "$SNAPSHOT" ] && ! git diff --cached --quiet -- "$SNAPSHOT" 2>/dev/null; then
+  echo "[pre-push] database snapshot is staged and will be pushed"
+elif [ -f "$SNAPSHOT" ] && git ls-files --error-unmatch "$SNAPSHOT" >/dev/null 2>&1; then
+  if ! git diff --quiet -- "$SNAPSHOT" 2>/dev/null; then
+    echo "[pre-push] warning: $SNAPSHOT has local changes not committed. Run: git add $SNAPSHOT"
+  fi
+fi
+
+exit 0
