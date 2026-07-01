@@ -20,6 +20,7 @@ import type { AppVO, ChatHistoryVO } from '@/api/types'
 import { CODE_GEN_TYPE } from '@/api/types'
 import { ACCESS_ENUM, useLoginUserStore } from '@/stores/loginUser'
 import { consumeSseStream } from '@/utils/sse'
+import ToolFileCard, { type FileToolActivity } from '@/components/ToolFileCard.vue'
 import {
   formatVisualSelectionLabel,
   injectPreviewInspector,
@@ -32,6 +33,8 @@ interface ChatMessage {
   role: 'ai' | 'user' | 'error'
   content: string
   streaming?: boolean
+  /** Vue Agent 文件工具实时内容 */
+  fileActivities?: FileToolActivity[]
 }
 
 const WELCOME_MESSAGE: ChatMessage = {
@@ -147,9 +150,60 @@ function formatVueAiContent(thinking: string, tools: string[]): string {
     parts.push(thinking.trim())
   }
   if (tools.length) {
-    parts.push(tools.slice(-12).join('\n'))
+    parts.push(tools.join('\n'))
   }
   return parts.join('\n\n') || '正在生成 Vue 工程…'
+}
+
+interface ToolFilePayload {
+  action: 'save' | 'read'
+  path: string
+  chunk: string
+  done: boolean
+  truncated?: boolean
+  mediaType?: 'code' | 'image' | 'text'
+}
+
+/**
+ * 处理 tool-file SSE：累加分块内容，实时更新文件卡片
+ */
+function handleToolFileEvent(data: string, aiMsg: ChatMessage) {
+  let payload: ToolFilePayload
+  try {
+    payload = JSON.parse(data) as ToolFilePayload
+  } catch {
+    return
+  }
+  if (!payload.path) return
+
+  if (!aiMsg.fileActivities) {
+    aiMsg.fileActivities = []
+  }
+
+  const key = `${payload.action}:${payload.path}`
+  let activity = aiMsg.fileActivities.find((a) => `${a.action}:${a.path}` === key)
+  if (!activity) {
+    activity = {
+      id: `${key}-${Date.now()}`,
+      action: payload.action,
+      path: payload.path,
+      content: '',
+      streaming: true,
+      mediaType: payload.mediaType || 'code',
+    }
+    aiMsg.fileActivities.push(activity)
+  }
+
+  if (payload.chunk) {
+    activity.content += payload.chunk
+  }
+  if (payload.mediaType) {
+    activity.mediaType = payload.mediaType
+  }
+  if (payload.done) {
+    activity.streaming = false
+    activity.truncated = !!payload.truncated
+  }
 }
 
 /**
@@ -352,8 +406,14 @@ const generate = async (userPrompt: string) => {
     },
     onEvent: (eventName, data) => {
       if (eventName === 'tool-start') {
-        toolLogs.push(`📁 ${data}`)
-        aiMsg.content = formatVueAiContent(raw, toolLogs)
+        // saveFile/readFile 已有文件内容卡片，仅保留 listFiles 等操作提示
+        if (!data.startsWith('saveFile') && !data.startsWith('readFile')) {
+          toolLogs.push(`📁 ${data}`)
+          aiMsg.content = formatVueAiContent(raw, toolLogs)
+        }
+        scrollToBottom()
+      } else if (eventName === 'tool-file') {
+        handleToolFileEvent(data, aiMsg)
         scrollToBottom()
       } else if (eventName === 'build-log') {
         appendBuildLog(data)
@@ -436,6 +496,9 @@ const handleStop = () => {
   vueBuilding.value = false
   if (currentAiMsg) {
     currentAiMsg.streaming = false
+    currentAiMsg.fileActivities?.forEach((f) => {
+      f.streaming = false
+    })
     if (currentAiMsg.content.trim()) {
       currentAiMsg.content += '\n\n⏹ 已停止生成'
     } else {
@@ -560,7 +623,12 @@ onBeforeUnmount(() => {
               <template #icon><RobotOutlined /></template>
             </a-avatar>
             <div class="msg__bubble">
-              <pre class="msg__content">{{ msg.content }}</pre>
+              <pre v-if="msg.content" class="msg__content">{{ msg.content }}</pre>
+              <ToolFileCard
+                v-for="file in msg.fileActivities"
+                :key="file.id"
+                :activity="file"
+              />
               <span v-if="msg.streaming" class="msg__cursor" aria-hidden="true">
                 <LoadingOutlined spin />
               </span>
@@ -766,6 +834,15 @@ onBeforeUnmount(() => {
   background: #fff;
   border: 1px solid #eee;
   border-radius: 10px;
+}
+
+.msg--ai .msg__bubble {
+  max-width: 92%;
+}
+
+.msg__bubble:has(.tool-file) {
+  max-width: 95%;
+  min-width: 280px;
 }
 
 .msg--user .msg__bubble {

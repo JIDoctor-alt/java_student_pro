@@ -18,6 +18,7 @@ import com.zhenq.core.AiCodeGeneratorFacade;
 import com.zhenq.core.cover.AppCoverService;
 import com.zhenq.core.visual.VisualEditPromptUtils;
 import com.zhenq.model.dto.visual.VisualEditContext;
+import com.zhenq.core.vue.ToolFileSsePayload;
 import com.zhenq.core.vue.VueProjectBuildService;
 import com.zhenq.core.vue.VueProjectCodegenExecutor;
 import com.zhenq.core.vue.VueProjectPathUtils;
@@ -94,6 +95,12 @@ public class AppController {
 
     @Resource
     private PromptOptimizeFactory promptOptimizeFactory;
+
+    @Resource
+    private com.zhenq.monitor.AiMetricsCollector aiMetricsCollector;
+
+    @Resource
+    private com.zhenq.service.AiModelRuntimeResolver aiModelRuntimeResolver;
 
     /**
      * 每页最大数量（用户侧分页限制）
@@ -277,10 +284,27 @@ public class AppController {
         String savedMessage = VisualEditPromptUtils.formatUserMessage(message, visualEditContext);
         chatHistoryService.saveUserMessage(appId, loginUser.getId(), savedMessage);
 
+        String model = resolveModelName(typeEnum);
         if (CodeGenTypeEnum.VUE_PROJECT == typeEnum) {
-            return chatToGenVueProject(appId, promptWithMemory);
+            return chatToGenVueProject(appId, promptWithMemory, loginUser.getId(), model);
         }
-        return chatToGenNativeCode(appId, promptWithMemory, typeEnum);
+        return chatToGenNativeCode(appId, promptWithMemory, typeEnum, loginUser.getId(), model);
+    }
+
+    /**
+     * 根据生成类型解析对应场景的模型名称（用于监控埋点维度）
+     */
+    private String resolveModelName(CodeGenTypeEnum typeEnum) {
+        com.zhenq.ai.AiModelScenario scenario = switch (typeEnum) {
+            case VUE_PROJECT -> com.zhenq.ai.AiModelScenario.VUE_AGENT;
+            case MULTI_FILE -> com.zhenq.ai.AiModelScenario.MULTI_FILE_STREAM;
+            default -> com.zhenq.ai.AiModelScenario.HTML_STREAM;
+        };
+        try {
+            return aiModelRuntimeResolver.resolveScenario(scenario.getConfigKey()).getModelName();
+        } catch (Exception e) {
+            return "unknown";
+        }
     }
 
     private VisualEditContext parseVisualEditContext(String visualContextJson) {
@@ -297,10 +321,13 @@ public class AppController {
     /**
      * 原生 HTML / 多文件模式 SSE 生成
      */
-    private SseEmitter chatToGenNativeCode(Long appId, String promptWithMemory, CodeGenTypeEnum typeEnum) {
+    private SseEmitter chatToGenNativeCode(Long appId, String promptWithMemory, CodeGenTypeEnum typeEnum,
+                                           Long userId, String model) {
         // 使用 SseEmitter：客户端断开不会取消 DeepSeek 流，避免 closed 错误
         SseEmitter emitter = new SseEmitter(600_000L);
         StringBuilder aiContentBuilder = new StringBuilder();
+        String genType = typeEnum.getValue();
+        long startNanos = System.nanoTime();
         Disposable disposable = aiCodeGeneratorFacade.generateAndSaveCodeStream(promptWithMemory, typeEnum, appId)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
@@ -313,6 +340,7 @@ public class AppController {
                             }
                         },
                         error -> {
+                            recordAiRequest(appId, userId, genType, model, "error", startNanos);
                             String errMsg = AiErrorUtils.toUserMessage(error);
                             chatHistoryService.saveErrorMessage(appId, "生成失败：" + errMsg);
                             try {
@@ -325,6 +353,7 @@ public class AppController {
                             }
                         },
                         () -> {
+                            recordAiRequest(appId, userId, genType, model, "success", startNanos);
                             if (!aiContentBuilder.isEmpty()) {
                                 chatHistoryService.saveAiMessage(appId, aiContentBuilder.toString());
                             }
@@ -346,9 +375,11 @@ public class AppController {
     /**
      * Vue3 工程模式：工具调用 Agent + npm build
      */
-    private SseEmitter chatToGenVueProject(Long appId, String promptWithMemory) {
+    private SseEmitter chatToGenVueProject(Long appId, String promptWithMemory, Long userId, String model) {
         SseEmitter emitter = new SseEmitter(600_000L);
         StringBuilder aiContentBuilder = new StringBuilder();
+        String genType = CodeGenTypeEnum.VUE_PROJECT.getValue();
+        long startNanos = System.nanoTime();
         Schedulers.boundedElastic().schedule(() -> vueProjectCodegenExecutor.executeStream(appId, promptWithMemory,
                 new VueProjectStreamCallback() {
                     @Override
@@ -363,6 +394,11 @@ public class AppController {
                     }
 
                     @Override
+                    public void onToolFile(ToolFileSsePayload payload) {
+                        sendSseEvent(emitter, "tool-file", JSONUtil.toJsonStr(payload));
+                    }
+
+                    @Override
                     public void onBuildLog(String line) {
                         sendSseEvent(emitter, "build-log", line);
                     }
@@ -374,6 +410,7 @@ public class AppController {
 
                     @Override
                     public void onComplete(String fullText) {
+                        recordAiRequest(appId, userId, genType, model, "success", startNanos);
                         chatHistoryService.saveAiMessage(appId, buildVueAiSummary(aiContentBuilder, fullText));
                         sendSseEvent(emitter, "preview-ready", "ok");
                         appCoverService.generateCoverAsync(appId, coverUrl -> {
@@ -387,6 +424,7 @@ public class AppController {
 
                     @Override
                     public void onError(String message) {
+                        recordAiRequest(appId, userId, genType, model, "error", startNanos);
                         String errMsg = AiErrorUtils.toUserMessage(message);
                         chatHistoryService.saveErrorMessage(appId, errMsg);
                         sendSseEvent(emitter, "gen-error", errMsg);
@@ -401,6 +439,15 @@ public class AppController {
             return aiContentBuilder.substring(0, 500) + "...（Vue 工程已生成并完成构建）";
         }
         return StrUtil.isNotBlank(fullText) ? fullText : "Vue 工程已生成并完成构建";
+    }
+
+    /**
+     * 记录一次 AI 生成请求的监控指标（次数 + 耗时）
+     */
+    private void recordAiRequest(Long appId, Long userId, String genType, String model,
+                                 String status, long startNanos) {
+        long durationMs = (System.nanoTime() - startNanos) / 1_000_000L;
+        aiMetricsCollector.recordRequest(appId, userId, genType, model, status, durationMs);
     }
 
     private void sendSseData(SseEmitter emitter, String data) {

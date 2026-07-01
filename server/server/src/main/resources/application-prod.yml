@@ -26,8 +26,8 @@ app:
   admin:
     init-enabled: true
     account: ${ADMIN_INIT_ACCOUNT:admin}
-    # 生产环境请通过环境变量 ADMIN_INIT_PASSWORD 注入；留空则随机生成并打印到日志
-    password: ${ADMIN_INIT_PASSWORD:}
+    # 默认密码 admin12345，生产环境建议通过环境变量 ADMIN_INIT_PASSWORD 覆盖，并登录后尽快修改
+    password: ${ADMIN_INIT_PASSWORD:admin12345}
   deploy-host: http://124.70.195.81/api/static
   server-base-url: http://124.70.195.81/api
   cover-enabled: true
@@ -66,3 +66,20 @@ mybatis-flex:
   configuration:
     map-underscore-to-camel-case: false
     log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+# 可观测性：Actuator + Prometheus（生产建议将 /actuator 限制在内网或加认证）
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true

@@ -134,3 +134,29 @@ mybatis-flex:
     map-underscore-to-camel-case: false
     # 开发期打印 SQL，便于调试
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# 可观测性：Spring Boot Actuator + Micrometer(Prometheus)
+# Prometheus 抓取地址：http://localhost:8123/api/actuator/prometheus
+management:
+  endpoints:
+    web:
+      exposure:
+        # 暴露健康检查、指标与 Prometheus 抓取端点
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      # 统一附加应用标签，便于 Grafana 多实例区分
+      application: ${spring.application.name}
+    distribution:
+      # 为 AI 请求耗时开启直方图分桶，支持 Grafana 计算 P95/P99
+      percentiles-histogram:
+        "[ai.request.duration]": true
+      slo:
+        "[ai.request.duration]": 1s,3s,5s,10s,30s,60s
+  prometheus:
+    metrics:
+      export:
+        enabled: true

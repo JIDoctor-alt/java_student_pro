@@ -45,17 +45,15 @@ public class AdminBootstrapRunner implements ApplicationRunner {
         if (!initEnabled) {
             return;
         }
-        // 已存在管理员则跳过（幂等，重启不会重复创建）
-        long adminCount = userService.count(
-                QueryWrapper.create().eq("user_role", UserRoleEnum.ADMIN.getValue()));
-        if (adminCount > 0) {
-            return;
-        }
-        // 账号被占用（同名普通用户）则不覆盖，仅告警
-        long sameAccount = userService.count(
+        // 幂等：只要「配置指定的管理员账号」已存在就跳过，避免重复创建。
+        // 注意：这里按账号判断而非“是否存在任意 admin”，
+        // 以保证部署后配置的默认管理员账号一定可登录（即使库里已有其他管理员）。
+        User existing = userService.getOne(
                 QueryWrapper.create().eq("user_account", adminAccount));
-        if (sameAccount > 0) {
-            log.warn("[AdminBootstrap] 未创建初始管理员：账号 [{}] 已存在但角色非 admin，请手动处理。", adminAccount);
+        if (existing != null) {
+            if (!UserRoleEnum.ADMIN.getValue().equals(existing.getUserRole())) {
+                log.warn("[AdminBootstrap] 账号 [{}] 已存在但角色非 admin，未做任何修改，请手动处理。", adminAccount);
+            }
             return;
         }
 
