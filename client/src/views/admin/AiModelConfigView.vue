@@ -71,7 +71,10 @@ const normalizeScenarioModels = () => {
     return
   }
   const validIds = provider.models.map((item) => item.id)
-  const defaultModel = provider.models[0].id
+  const defaultModel = provider.models[0]?.id
+  if (!defaultModel) {
+    return
+  }
   scenarios.value.forEach((item) => {
     if (!item.modelName || !validIds.includes(item.modelName)) {
       item.modelName = defaultModel

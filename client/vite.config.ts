@@ -16,6 +16,8 @@ export default defineConfig({
     },
   },
   server: {
+    port: 5174,
+    strictPort: false,
     proxy: {
       // 开发环境走同源代理，Session Cookie 才能稳定携带
       '/api': {
