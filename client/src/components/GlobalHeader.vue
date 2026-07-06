@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, h } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { LogoutOutlined, UserOutlined } from '@ant-design/icons-vue'
+import { UserOutlined } from '@ant-design/icons-vue'
 import type { MenuProps } from 'ant-design-vue'
 import logoUrl from '@/assets/logo.png'
+import UserQuotaPanel from '@/components/UserQuotaPanel.vue'
 import { ACCESS_ENUM, useLoginUserStore } from '@/stores/loginUser'
-import { userLogout } from '@/api/user'
+import { getUserQuota, userLogout } from '@/api/user'
+import type { UserQuotaVO } from '@/api/types'
 
 interface AppMenuItem {
   key: string
@@ -15,21 +17,22 @@ interface AppMenuItem {
   access?: string
 }
 
-const siteTitle = 'CODE原创项目'
+const siteTitle = 'ZqCode'
 
 const route = useRoute()
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
+const userQuota = ref<UserQuotaVO | null>(null)
+const quotaLoading = ref(false)
 
-// 完整菜单配置（access 控制可见性）
 const allMenus: AppMenuItem[] = [
   { key: '/', label: '首页', title: '首页' },
   { key: '/about', label: '关于', title: '关于' },
   { key: '/admin/user', label: '用户管理', title: '用户管理', access: ACCESS_ENUM.ADMIN },
   { key: '/admin/app', label: '应用管理', title: '应用管理', access: ACCESS_ENUM.ADMIN },
+  { key: '/admin/ai-model', label: '模型接入', title: '模型接入', access: ACCESS_ENUM.ADMIN },
 ]
 
-// 根据登录用户角色过滤可见菜单
 const menuItems = computed<MenuProps['items']>(() => {
   const role = loginUserStore.loginUser.userRole
   return allMenus
@@ -48,6 +51,30 @@ const isLogin = computed(
   () => !!loginUserStore.loginUser.id && loginUserStore.loginUser.userRole !== ACCESS_ENUM.NOT_LOGIN,
 )
 
+const loadQuota = async () => {
+  if (!isLogin.value) {
+    userQuota.value = null
+    return
+  }
+  quotaLoading.value = true
+  try {
+    const res = await getUserQuota()
+    if (res.code === 0 && res.data) {
+      userQuota.value = res.data
+    }
+  } finally {
+    quotaLoading.value = false
+  }
+}
+
+watch(isLogin, () => {
+  loadQuota()
+})
+
+onMounted(() => {
+  loadQuota()
+})
+
 const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
   if (typeof key === 'string' && key !== route.path) {
     router.push(key)
@@ -58,6 +85,7 @@ const handleLogout = async () => {
   const res = await userLogout()
   if (res.code === 0) {
     loginUserStore.setLoginUser({ userName: '未登录', userRole: ACCESS_ENUM.NOT_LOGIN })
+    userQuota.value = null
     message.success('已退出登录')
     router.push('/user/login')
   } else {
@@ -65,17 +93,11 @@ const handleLogout = async () => {
   }
 }
 
-const userMenuItems = [{ key: 'logout', label: '退出登录', icon: h(LogoutOutlined) }]
-
-const handleUserMenuClick: MenuProps['onClick'] = ({ key }) => {
-  if (key === 'logout') {
-    handleLogout()
-  }
-}
-
 const goLogin = () => {
   router.push('/user/login')
 }
+
+defineExpose({ loadQuota })
 </script>
 
 <template>
@@ -95,7 +117,7 @@ const goLogin = () => {
     />
 
     <div class="global-header__user">
-      <a-dropdown v-if="isLogin">
+      <a-dropdown v-if="isLogin" :trigger="['click']" placement="bottomRight">
         <span class="global-header__user-info">
           <a-avatar :src="loginUserStore.loginUser.userAvatar" size="small">
             <template #icon><UserOutlined /></template>
@@ -103,7 +125,12 @@ const goLogin = () => {
           <span class="global-header__user-name">{{ loginUserStore.loginUser.userName }}</span>
         </span>
         <template #overlay>
-          <a-menu :items="userMenuItems" @click="handleUserMenuClick" />
+          <UserQuotaPanel
+            :user="loginUserStore.loginUser"
+            :quota="userQuota"
+            @logout="handleLogout"
+            @refresh="loadQuota"
+          />
         </template>
       </a-dropdown>
       <a-button v-else type="primary" @click="goLogin">登录</a-button>

@@ -39,3 +39,6 @@ server/server/src/main/resources/application-local.yml
 __pycache__/
 *.pyc
 .venv/
+
+# Local Docker data (do not commit)
+deploy/data/

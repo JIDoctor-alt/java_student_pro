@@ -9,6 +9,12 @@ public interface VueProjectStreamCallback {
 
     void onToolExecuted(String detail);
 
+    /**
+     * 文件工具读写内容流式推送（saveFile / readFile）
+     */
+    default void onToolFile(ToolFileSsePayload payload) {
+    }
+
     void onBuildLog(String line);
 
     void onComplete(String fullText);

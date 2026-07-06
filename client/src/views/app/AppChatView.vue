@@ -5,19 +5,22 @@ import { message } from 'ant-design-vue'
 import {
   ArrowUpOutlined,
   CloudUploadOutlined,
+  DownloadOutlined,
   EditOutlined,
   LoadingOutlined,
+  PauseOutlined,
   PaperClipOutlined,
   ReloadOutlined,
   RobotOutlined,
   ThunderboltOutlined,
   UserOutlined,
 } from '@ant-design/icons-vue'
-import { buildChatGenUrl, buildPreviewUrl, checkPreviewReady, deployApp, getAppVoById, listChatHistory } from '@/api/app'
+import { buildChatGenUrl, buildPreviewUrl, checkPreviewReady, deployApp, downloadCode, getAppVoById, listChatHistory } from '@/api/app'
 import type { AppVO, ChatHistoryVO } from '@/api/types'
 import { CODE_GEN_TYPE } from '@/api/types'
 import { ACCESS_ENUM, useLoginUserStore } from '@/stores/loginUser'
 import { consumeSseStream } from '@/utils/sse'
+import ToolFileCard, { type FileToolActivity } from '@/components/ToolFileCard.vue'
 import {
   formatVisualSelectionLabel,
   injectPreviewInspector,
@@ -30,12 +33,14 @@ interface ChatMessage {
   role: 'ai' | 'user' | 'error'
   content: string
   streaming?: boolean
+  /** Vue Agent 文件工具实时内容 */
+  fileActivities?: FileToolActivity[]
 }
 
 const WELCOME_MESSAGE: ChatMessage = {
   role: 'ai',
   content:
-    '你好！我是 NoCode，你的 AI 应用开发助手。\n\n我可以帮你：\n· 构建结构化的页面与交互\n· 集成数据与样式美化\n· 一句话生成可运行的网页应用\n\n告诉我你想要什么样的应用，我立即为你生成！',
+    '你好！我是 ZqCode，你的 AI 应用开发助手。\n\n我可以帮你：\n· 构建结构化的页面与交互\n· 集成数据与样式美化\n· 一句话生成可运行的网页应用\n\n告诉我你想要什么样的应用，我立即为你生成！',
 }
 
 const route = useRoute()
@@ -48,6 +53,7 @@ const messages = ref<ChatMessage[]>([])
 const inputText = ref('')
 const generating = ref(false)
 const deploying = ref(false)
+const downloading = ref(false)
 const deployUrl = ref('')
 const previewHtml = ref('')
 const previewUrl = ref('')
@@ -65,6 +71,8 @@ const buildError = ref('')
 const buildLogRef = ref<HTMLElement | null>(null)
 
 let abortController: AbortController | null = null
+/** 当前正在流式输出的 AI 消息，用于暂停时收尾 */
+let currentAiMsg: ChatMessage | null = null
 
 const appName = computed(() => app.value?.appName || '智能助手')
 const codeGenType = computed(() => app.value?.codeGenType || 'html')
@@ -142,9 +150,60 @@ function formatVueAiContent(thinking: string, tools: string[]): string {
     parts.push(thinking.trim())
   }
   if (tools.length) {
-    parts.push(tools.slice(-12).join('\n'))
+    parts.push(tools.join('\n'))
   }
   return parts.join('\n\n') || '正在生成 Vue 工程…'
+}
+
+interface ToolFilePayload {
+  action: 'save' | 'read'
+  path: string
+  chunk: string
+  done: boolean
+  truncated?: boolean
+  mediaType?: 'code' | 'image' | 'text'
+}
+
+/**
+ * 处理 tool-file SSE：累加分块内容，实时更新文件卡片
+ */
+function handleToolFileEvent(data: string, aiMsg: ChatMessage) {
+  let payload: ToolFilePayload
+  try {
+    payload = JSON.parse(data) as ToolFilePayload
+  } catch {
+    return
+  }
+  if (!payload.path) return
+
+  if (!aiMsg.fileActivities) {
+    aiMsg.fileActivities = []
+  }
+
+  const key = `${payload.action}:${payload.path}`
+  let activity = aiMsg.fileActivities.find((a) => `${a.action}:${a.path}` === key)
+  if (!activity) {
+    activity = {
+      id: `${key}-${Date.now()}`,
+      action: payload.action,
+      path: payload.path,
+      content: '',
+      streaming: true,
+      mediaType: payload.mediaType || 'code',
+    }
+    aiMsg.fileActivities.push(activity)
+  }
+
+  if (payload.chunk) {
+    activity.content += payload.chunk
+  }
+  if (payload.mediaType) {
+    activity.mediaType = payload.mediaType
+  }
+  if (payload.done) {
+    activity.streaming = false
+    activity.truncated = !!payload.truncated
+  }
 }
 
 /**
@@ -316,6 +375,7 @@ const generate = async (userPrompt: string) => {
   }
   const aiIndex = messages.value.push({ role: 'ai', content: '', streaming: true }) - 1
   const aiMsg = messages.value[aiIndex] as ChatMessage
+  currentAiMsg = aiMsg
   scrollToBottom()
 
   generating.value = true
@@ -346,8 +406,14 @@ const generate = async (userPrompt: string) => {
     },
     onEvent: (eventName, data) => {
       if (eventName === 'tool-start') {
-        toolLogs.push(`📁 ${data}`)
-        aiMsg.content = formatVueAiContent(raw, toolLogs)
+        // saveFile/readFile 已有文件内容卡片，仅保留 listFiles 等操作提示
+        if (!data.startsWith('saveFile') && !data.startsWith('readFile')) {
+          toolLogs.push(`📁 ${data}`)
+          aiMsg.content = formatVueAiContent(raw, toolLogs)
+        }
+        scrollToBottom()
+      } else if (eventName === 'tool-file') {
+        handleToolFileEvent(data, aiMsg)
         scrollToBottom()
       } else if (eventName === 'build-log') {
         appendBuildLog(data)
@@ -364,6 +430,7 @@ const generate = async (userPrompt: string) => {
     onDone: () => {
       aiMsg.streaming = false
       generating.value = false
+      currentAiMsg = null
       if (!isVueProject.value) {
         previewHtml.value = extractHtml(raw)
         finishPreview()
@@ -382,6 +449,7 @@ const generate = async (userPrompt: string) => {
     onError: (errMsg) => {
       aiMsg.streaming = false
       generating.value = false
+      currentAiMsg = null
       vueBuilding.value = false
       buildError.value = errMsg
       if (buildLogs.value.length === 0) {
@@ -417,6 +485,33 @@ const handleSend = () => {
   generate(text)
 }
 
+/**
+ * 暂停/停止当前生成：中断 SSE 流并收尾 UI 状态
+ * 说明：abort 后 sse 工具会静默返回，不再触发 onDone/onError，需在此手动收尾
+ */
+const handleStop = () => {
+  if (!generating.value) return
+  closeStream()
+  generating.value = false
+  vueBuilding.value = false
+  if (currentAiMsg) {
+    currentAiMsg.streaming = false
+    currentAiMsg.fileActivities?.forEach((f) => {
+      f.streaming = false
+    })
+    if (currentAiMsg.content.trim()) {
+      currentAiMsg.content += '\n\n⏹ 已停止生成'
+    } else {
+      currentAiMsg.content = '⏹ 已停止生成'
+    }
+    currentAiMsg = null
+  }
+  if (isVueProject.value && !previewUrl.value) {
+    buildError.value = buildError.value || '已停止生成'
+  }
+  message.info('已停止生成')
+}
+
 const handleRefresh = async () => {
   if (isVueProject.value) {
     await loadVuePreviewIfReady()
@@ -449,6 +544,22 @@ const handleDeploy = async () => {
   }
 }
 
+const handleDownload = async () => {
+  if (generating.value) {
+    message.warning('请等待代码生成完成再下载')
+    return
+  }
+  downloading.value = true
+  try {
+    await downloadCode(appId.value, app.value?.appName)
+    message.success('代码已开始下载')
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : '下载失败')
+  } finally {
+    downloading.value = false
+  }
+}
+
 onMounted(async () => {
   window.addEventListener('message', onVisualEditMessage)
   await loginUserStore.fetchLoginUser()
@@ -473,10 +584,16 @@ onBeforeUnmount(() => {
     <!-- 顶部栏 -->
     <header class="chat-page__bar">
       <div class="chat-page__name">{{ appName }}</div>
-      <a-button type="primary" :loading="deploying" @click="handleDeploy">
-        <template #icon><CloudUploadOutlined /></template>
-        部署
-      </a-button>
+      <div class="chat-page__actions">
+        <a-button :loading="downloading" @click="handleDownload">
+          <template #icon><DownloadOutlined /></template>
+          下载代码
+        </a-button>
+        <a-button type="primary" :loading="deploying" @click="handleDeploy">
+          <template #icon><CloudUploadOutlined /></template>
+          部署
+        </a-button>
+      </div>
     </header>
 
     <div class="chat-page__body">
@@ -506,7 +623,12 @@ onBeforeUnmount(() => {
               <template #icon><RobotOutlined /></template>
             </a-avatar>
             <div class="msg__bubble">
-              <pre class="msg__content">{{ msg.content }}</pre>
+              <pre v-if="msg.content" class="msg__content">{{ msg.content }}</pre>
+              <ToolFileCard
+                v-for="file in msg.fileActivities"
+                :key="file.id"
+                :activity="file"
+              />
               <span v-if="msg.streaming" class="msg__cursor" aria-hidden="true">
                 <LoadingOutlined spin />
               </span>
@@ -553,10 +675,20 @@ onBeforeUnmount(() => {
                 点选编辑
               </a-button>
             </div>
+            <a-tooltip v-if="generating" title="停止生成">
+              <a-button
+                type="primary"
+                danger
+                shape="circle"
+                @click="handleStop"
+              >
+                <template #icon><PauseOutlined /></template>
+              </a-button>
+            </a-tooltip>
             <a-button
+              v-else
               type="primary"
               shape="circle"
-              :loading="generating"
               @click="handleSend"
             >
               <template #icon><ArrowUpOutlined /></template>
@@ -648,6 +780,11 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+.chat-page__actions {
+  display: flex;
+  gap: 10px;
+}
+
 .chat-page__body {
   display: flex;
   flex: 1;
@@ -697,6 +834,15 @@ onBeforeUnmount(() => {
   background: #fff;
   border: 1px solid #eee;
   border-radius: 10px;
+}
+
+.msg--ai .msg__bubble {
+  max-width: 92%;
+}
+
+.msg__bubble:has(.tool-file) {
+  max-width: 95%;
+  min-width: 280px;
 }
 
 .msg--user .msg__bubble {

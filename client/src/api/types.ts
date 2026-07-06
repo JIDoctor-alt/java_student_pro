@@ -32,6 +32,39 @@ export interface LoginUserVO {
   updateTime?: string
 }
 
+/** 用户额度（对话次数 / 作品数量 / 套餐） */
+export interface UserQuotaVO {
+  userPlan?: string
+  userPlanLabel?: string
+  chatUsed: number
+  chatLimit: number
+  planChatLimit?: number
+  extraChatQuota?: number
+  dailyLoginBonus: number
+  dailyBonusGranted: boolean
+  appUsed: number
+  appLimit: number
+  planAppLimit?: number
+  extraAppQuota?: number
+  unlimited?: boolean
+  upgradeEnabled?: boolean
+  expandEnabled?: boolean
+  plans?: QuotaPlanVO[]
+  chatExpandPack?: number
+  appExpandPack?: number
+  chatExpandPriceYuan?: number
+  appExpandPriceYuan?: number
+}
+
+export interface QuotaPlanVO {
+  plan: string
+  label: string
+  dailyChatLimit: number
+  maxAppCount: number
+  priceYuan: number
+  current?: boolean
+}
+
 /**
  * 用户视图（脱敏）
  */
@@ -42,6 +75,9 @@ export interface UserVO {
   userAvatar?: string
   userProfile?: string
   userRole?: string
+  userPlan?: string
+  extraChatQuota?: number
+  extraAppQuota?: number
   createTime?: string
 }
 
@@ -77,6 +113,9 @@ export interface UserUpdateRequest {
   userAvatar?: string
   userProfile?: string
   userRole?: string
+  userPlan?: string
+  extraChatQuota?: number
+  extraAppQuota?: number
 }
 
 export interface UserQueryRequest {
@@ -118,6 +157,11 @@ export interface AppVO {
 
 export interface AppAddRequest {
   initPrompt: string
+  codeGenType?: string
+}
+
+export interface PromptOptimizeRequest {
+  prompt: string
   codeGenType?: string
 }
 
@@ -182,4 +226,56 @@ export interface ChatHistoryQueryRequest {
   appId: number
   pageSize?: number
   lastId?: number
+}
+
+export interface AiModelOptionVO {
+  id: string
+  name: string
+  description?: string
+}
+
+export interface AiModelProviderVO {
+  id: string
+  name: string
+  docsUrl: string
+  defaultBaseUrl: string
+  models: AiModelOptionVO[]
+}
+
+export interface AiModelScenarioConfigVO {
+  scenarioKey: string
+  scenarioName: string
+  providerId?: string
+  baseUrl?: string
+  apiKey?: string
+  modelName?: string
+  temperature?: number
+  maxTokens?: number
+  logRequests?: boolean
+  logResponses?: boolean
+}
+
+export interface AiModelConfigVO {
+  providerId: string
+  baseUrl: string
+  apiKey: string
+  apiKeyConfigured: boolean
+  scenarios: AiModelScenarioConfigVO[]
+}
+
+export interface AiModelConfigUpdateRequest {
+  providerId: string
+  baseUrl?: string
+  apiKey?: string
+  scenarios: Array<{
+    scenarioKey: string
+    providerId?: string
+    baseUrl?: string
+    apiKey?: string
+    modelName?: string
+    temperature?: number
+    maxTokens?: number
+    logRequests?: boolean
+    logResponses?: boolean
+  }>
 }

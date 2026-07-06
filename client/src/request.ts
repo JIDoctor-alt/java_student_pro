@@ -7,7 +7,7 @@ import { message } from 'ant-design-vue'
  * - withCredentials 携带 Cookie，配合后端 Session 登录态
  */
 const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8123/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 60000,
   withCredentials: true,
 })
@@ -31,7 +31,8 @@ request.interceptors.response.use(
     return response
   },
   (error) => {
-    message.error(error.message ?? '请求失败')
+    const serverMessage = error.response?.data?.message
+    message.error(serverMessage || error.message || '请求失败')
     return Promise.reject(error)
   },
 )

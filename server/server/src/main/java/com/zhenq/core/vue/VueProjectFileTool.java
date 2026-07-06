@@ -27,7 +27,15 @@ public class VueProjectFileTool {
 
     private static final InheritableThreadLocal<Long> APP_ID = new InheritableThreadLocal<>();
 
+    private static final InheritableThreadLocal<VueProjectFileStreamListener> STREAM_LISTENER = new InheritableThreadLocal<>();
+
     private static final ConcurrentMap<Long, Long> BOUND_APP_IDS = new ConcurrentHashMap<>();
+
+    /** 前端展示的最大字符数，超出则截断 */
+    private static final int MAX_DISPLAY_CHARS = 30_000;
+
+    /** 流式分块大小（越小 SSE 推送越细，前端流式效果越明显） */
+    private static final int CHUNK_SIZE = 64;
 
     /**
      * 绑定当前生成任务的应用 id（需在 Agent 启动前调用）
@@ -38,16 +46,26 @@ public class VueProjectFileTool {
         VueProjectContext.setAppId(appId);
     }
 
+    public void bindStreamListener(VueProjectFileStreamListener listener) {
+        STREAM_LISTENER.set(listener);
+    }
+
+    public void clearStreamListener() {
+        STREAM_LISTENER.remove();
+    }
+
     public void clearAppId(Long appId) {
         if (appId != null) {
             BOUND_APP_IDS.remove(appId);
         }
         APP_ID.remove();
+        STREAM_LISTENER.remove();
         VueProjectContext.clear();
     }
 
     public void clearAppId() {
         APP_ID.remove();
+        STREAM_LISTENER.remove();
         VueProjectContext.clear();
     }
 
@@ -55,9 +73,11 @@ public class VueProjectFileTool {
     public String saveFile(@P("path") String path, @P("content") String content) {
         Long appId = requireAppId();
         Path target = resolveSafePath(appId, path);
+        String safeContent = content == null ? "" : content;
+        publishFileStream("save", path, safeContent);
         try {
             Files.createDirectories(target.getParent());
-            Files.writeString(target, content == null ? "" : content, StandardCharsets.UTF_8);
+            Files.writeString(target, safeContent, StandardCharsets.UTF_8);
             log.info("Vue 工程文件已保存：appId={}, path={}", appId, path);
             return "已保存：" + path;
         } catch (IOException e) {
@@ -73,7 +93,9 @@ public class VueProjectFileTool {
             return "文件不存在：" + path;
         }
         try {
-            return Files.readString(target, StandardCharsets.UTF_8);
+            String fileContent = Files.readString(target, StandardCharsets.UTF_8);
+            publishFileStream("read", path, fileContent);
+            return fileContent;
         } catch (IOException e) {
             return "读取失败：" + path + "，" + e.getMessage();
         }
@@ -122,5 +144,73 @@ public class VueProjectFileTool {
             throw new IllegalArgumentException("非法路径：" + relativePath);
         }
         return resolved;
+    }
+
+    /**
+     * 将文件内容分块推送至 SSE，前端可实时展示生成/读取过程
+     */
+    private void publishFileStream(String action, String path, String content) {
+        VueProjectFileStreamListener listener = STREAM_LISTENER.get();
+        if (listener == null) {
+            return;
+        }
+        boolean truncated = content.length() > MAX_DISPLAY_CHARS;
+        String displayContent = truncated ? content.substring(0, MAX_DISPLAY_CHARS) : content;
+        String mediaType = detectMediaType(path, displayContent);
+
+        if (displayContent.isEmpty()) {
+            listener.onToolFile(ToolFileSsePayload.builder()
+                    .action(action)
+                    .path(path)
+                    .chunk("")
+                    .done(true)
+                    .truncated(false)
+                    .mediaType(mediaType)
+                    .build());
+            return;
+        }
+
+        int len = displayContent.length();
+        for (int offset = 0; offset < len; offset += CHUNK_SIZE) {
+            int end = Math.min(offset + CHUNK_SIZE, len);
+            String chunk = displayContent.substring(offset, end);
+            boolean done = end >= len;
+            listener.onToolFile(ToolFileSsePayload.builder()
+                    .action(action)
+                    .path(path)
+                    .chunk(chunk)
+                    .done(done)
+                    .truncated(done && truncated)
+                    .mediaType(mediaType)
+                    .build());
+        }
+    }
+
+    private String detectMediaType(String path, String content) {
+        if (StrUtil.isBlank(path)) {
+            return "text";
+        }
+        String lower = path.toLowerCase();
+        if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".ico")) {
+            if (content.startsWith("http://") || content.startsWith("https://")
+                    || content.startsWith("data:image") || looksLikeBase64(content)) {
+                return "image";
+            }
+        }
+        if (lower.endsWith(".vue") || lower.endsWith(".ts") || lower.endsWith(".tsx")
+                || lower.endsWith(".js") || lower.endsWith(".jsx") || lower.endsWith(".css")
+                || lower.endsWith(".html") || lower.endsWith(".json") || lower.endsWith(".md")
+                || lower.endsWith(".svg") || lower.endsWith(".scss") || lower.endsWith(".less")) {
+            return "code";
+        }
+        return "text";
+    }
+
+    private boolean looksLikeBase64(String content) {
+        if (content == null || content.length() < 32 || content.length() > 500_000) {
+            return false;
+        }
+        return content.matches("^[A-Za-z0-9+/=\\s]+$");
     }
 }

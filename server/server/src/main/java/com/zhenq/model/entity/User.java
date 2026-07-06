@@ -53,6 +53,21 @@ public class User implements Serializable {
     private String userRole;
 
     /**
+     * 套餐：free / basic / pro
+     */
+    private String userPlan;
+
+    /**
+     * 付费扩容：额外每日对话次数
+     */
+    private Integer extraChatQuota;
+
+    /**
+     * 付费扩容：额外作品数量
+     */
+    private Integer extraAppQuota;
+
+    /**
      * 创建时间
      */
     private LocalDateTime createTime;

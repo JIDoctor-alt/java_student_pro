@@ -18,6 +18,7 @@ import com.zhenq.core.AiCodeGeneratorFacade;
 import com.zhenq.core.cover.AppCoverService;
 import com.zhenq.core.visual.VisualEditPromptUtils;
 import com.zhenq.model.dto.visual.VisualEditContext;
+import com.zhenq.core.vue.ToolFileSsePayload;
 import com.zhenq.core.vue.VueProjectBuildService;
 import com.zhenq.core.vue.VueProjectCodegenExecutor;
 import com.zhenq.core.vue.VueProjectPathUtils;
@@ -30,6 +31,8 @@ import com.zhenq.model.dto.app.AppAdminUpdateRequest;
 import com.zhenq.model.dto.app.AppDeployRequest;
 import com.zhenq.model.dto.app.AppQueryRequest;
 import com.zhenq.model.dto.app.AppUpdateRequest;
+import com.zhenq.ai.PromptOptimizeFactory;
+import com.zhenq.model.dto.app.PromptOptimizeRequest;
 import com.zhenq.model.dto.chat.ChatHistoryQueryRequest;
 import com.zhenq.model.entity.App;
 import com.zhenq.model.entity.User;
@@ -38,10 +41,12 @@ import com.zhenq.model.vo.AppVO;
 import com.zhenq.model.vo.ChatHistoryCursorPageVO;
 import com.zhenq.service.AppService;
 import com.zhenq.service.ChatHistoryService;
+import com.zhenq.service.UserQuotaService;
 import com.zhenq.service.UserService;
 import com.zhenq.utils.AiErrorUtils;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.BeanUtils;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -89,6 +94,18 @@ public class AppController {
     @Resource
     private AppCoverService appCoverService;
 
+    @Resource
+    private PromptOptimizeFactory promptOptimizeFactory;
+
+    @Resource
+    private com.zhenq.monitor.AiMetricsCollector aiMetricsCollector;
+
+    @Resource
+    private UserQuotaService userQuotaService;
+
+    @Resource
+    private com.zhenq.service.AiModelRuntimeResolver aiModelRuntimeResolver;
+
     /**
      * 每页最大数量（用户侧分页限制）
      */
@@ -110,6 +127,7 @@ public class AppController {
         String initPrompt = appAddRequest.getInitPrompt();
         ThrowUtils.throwIf(StrUtil.isBlank(initPrompt), ErrorCode.PARAMS_ERROR, "初始化 prompt 不能为空");
         User loginUser = userService.getLoginUser(request);
+        userQuotaService.checkCanCreateApp(loginUser);
         App app = new App();
         app.setInitPrompt(initPrompt);
         // 应用名称默认取 prompt 前 12 个字符
@@ -122,6 +140,35 @@ public class AppController {
         boolean result = appService.save(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         return ResultUtils.success(app.getId());
+    }
+
+    /**
+     * 优化用户输入的应用描述提示词
+     */
+    @PostMapping("/prompt/optimize")
+    public BaseResponse<String> optimizePrompt(@RequestBody PromptOptimizeRequest optimizeRequest,
+                                               HttpServletRequest request) {
+        ThrowUtils.throwIf(optimizeRequest == null, ErrorCode.PARAMS_ERROR);
+        String prompt = optimizeRequest.getPrompt();
+        ThrowUtils.throwIf(StrUtil.isBlank(prompt), ErrorCode.PARAMS_ERROR, "提示词不能为空");
+        User loginUser = userService.getLoginUser(request);
+        userQuotaService.checkCanChat(loginUser);
+        userQuotaService.recordChatUsage(loginUser.getId());
+        CodeGenTypeEnum typeEnum = CodeGenTypeEnum.getEnumByValue(optimizeRequest.getCodeGenType());
+        String typeLabel = typeEnum != null ? typeEnum.getValue() : CodeGenTypeEnum.HTML.getValue();
+        String userMessage = """
+                【生成类型】%s
+                【用户原始提示词】
+                %s
+                """.formatted(typeLabel, prompt.trim());
+        try {
+            String optimized = promptOptimizeFactory.getService().optimizePrompt(userMessage);
+            ThrowUtils.throwIf(StrUtil.isBlank(optimized), ErrorCode.SYSTEM_ERROR, "优化结果为空");
+            return ResultUtils.success(optimized.trim());
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                    "提示词优化失败：" + AiErrorUtils.toUserMessage(e));
+        }
     }
 
     /**
@@ -232,6 +279,8 @@ public class AppController {
         if (!app.getUserId().equals(loginUser.getId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
+        userQuotaService.checkCanChat(loginUser);
+        userQuotaService.recordChatUsage(loginUser.getId());
         CodeGenTypeEnum typeEnum = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         if (typeEnum == null) {
             typeEnum = CodeGenTypeEnum.HTML;
@@ -244,10 +293,27 @@ public class AppController {
         String savedMessage = VisualEditPromptUtils.formatUserMessage(message, visualEditContext);
         chatHistoryService.saveUserMessage(appId, loginUser.getId(), savedMessage);
 
+        String model = resolveModelName(typeEnum);
         if (CodeGenTypeEnum.VUE_PROJECT == typeEnum) {
-            return chatToGenVueProject(appId, promptWithMemory);
+            return chatToGenVueProject(appId, promptWithMemory, loginUser.getId(), model);
         }
-        return chatToGenNativeCode(appId, promptWithMemory, typeEnum);
+        return chatToGenNativeCode(appId, promptWithMemory, typeEnum, loginUser.getId(), model);
+    }
+
+    /**
+     * 根据生成类型解析对应场景的模型名称（用于监控埋点维度）
+     */
+    private String resolveModelName(CodeGenTypeEnum typeEnum) {
+        com.zhenq.ai.AiModelScenario scenario = switch (typeEnum) {
+            case VUE_PROJECT -> com.zhenq.ai.AiModelScenario.VUE_AGENT;
+            case MULTI_FILE -> com.zhenq.ai.AiModelScenario.MULTI_FILE_STREAM;
+            default -> com.zhenq.ai.AiModelScenario.HTML_STREAM;
+        };
+        try {
+            return aiModelRuntimeResolver.resolveScenario(scenario.getConfigKey()).getModelName();
+        } catch (Exception e) {
+            return "unknown";
+        }
     }
 
     private VisualEditContext parseVisualEditContext(String visualContextJson) {
@@ -264,10 +330,13 @@ public class AppController {
     /**
      * 原生 HTML / 多文件模式 SSE 生成
      */
-    private SseEmitter chatToGenNativeCode(Long appId, String promptWithMemory, CodeGenTypeEnum typeEnum) {
+    private SseEmitter chatToGenNativeCode(Long appId, String promptWithMemory, CodeGenTypeEnum typeEnum,
+                                           Long userId, String model) {
         // 使用 SseEmitter：客户端断开不会取消 DeepSeek 流，避免 closed 错误
         SseEmitter emitter = new SseEmitter(600_000L);
         StringBuilder aiContentBuilder = new StringBuilder();
+        String genType = typeEnum.getValue();
+        long startNanos = System.nanoTime();
         Disposable disposable = aiCodeGeneratorFacade.generateAndSaveCodeStream(promptWithMemory, typeEnum, appId)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
@@ -280,6 +349,7 @@ public class AppController {
                             }
                         },
                         error -> {
+                            recordAiRequest(appId, userId, genType, model, "error", startNanos);
                             String errMsg = AiErrorUtils.toUserMessage(error);
                             chatHistoryService.saveErrorMessage(appId, "生成失败：" + errMsg);
                             try {
@@ -292,6 +362,7 @@ public class AppController {
                             }
                         },
                         () -> {
+                            recordAiRequest(appId, userId, genType, model, "success", startNanos);
                             if (!aiContentBuilder.isEmpty()) {
                                 chatHistoryService.saveAiMessage(appId, aiContentBuilder.toString());
                             }
@@ -313,9 +384,11 @@ public class AppController {
     /**
      * Vue3 工程模式：工具调用 Agent + npm build
      */
-    private SseEmitter chatToGenVueProject(Long appId, String promptWithMemory) {
+    private SseEmitter chatToGenVueProject(Long appId, String promptWithMemory, Long userId, String model) {
         SseEmitter emitter = new SseEmitter(600_000L);
         StringBuilder aiContentBuilder = new StringBuilder();
+        String genType = CodeGenTypeEnum.VUE_PROJECT.getValue();
+        long startNanos = System.nanoTime();
         Schedulers.boundedElastic().schedule(() -> vueProjectCodegenExecutor.executeStream(appId, promptWithMemory,
                 new VueProjectStreamCallback() {
                     @Override
@@ -330,6 +403,11 @@ public class AppController {
                     }
 
                     @Override
+                    public void onToolFile(ToolFileSsePayload payload) {
+                        sendSseEvent(emitter, "tool-file", JSONUtil.toJsonStr(payload));
+                    }
+
+                    @Override
                     public void onBuildLog(String line) {
                         sendSseEvent(emitter, "build-log", line);
                     }
@@ -341,6 +419,7 @@ public class AppController {
 
                     @Override
                     public void onComplete(String fullText) {
+                        recordAiRequest(appId, userId, genType, model, "success", startNanos);
                         chatHistoryService.saveAiMessage(appId, buildVueAiSummary(aiContentBuilder, fullText));
                         sendSseEvent(emitter, "preview-ready", "ok");
                         appCoverService.generateCoverAsync(appId, coverUrl -> {
@@ -354,6 +433,7 @@ public class AppController {
 
                     @Override
                     public void onError(String message) {
+                        recordAiRequest(appId, userId, genType, model, "error", startNanos);
                         String errMsg = AiErrorUtils.toUserMessage(message);
                         chatHistoryService.saveErrorMessage(appId, errMsg);
                         sendSseEvent(emitter, "gen-error", errMsg);
@@ -368,6 +448,15 @@ public class AppController {
             return aiContentBuilder.substring(0, 500) + "...（Vue 工程已生成并完成构建）";
         }
         return StrUtil.isNotBlank(fullText) ? fullText : "Vue 工程已生成并完成构建";
+    }
+
+    /**
+     * 记录一次 AI 生成请求的监控指标（次数 + 耗时）
+     */
+    private void recordAiRequest(Long appId, Long userId, String genType, String model,
+                                 String status, long startNanos) {
+        long durationMs = (System.nanoTime() - startNanos) / 1_000_000L;
+        aiMetricsCollector.recordRequest(appId, userId, genType, model, status, durationMs);
     }
 
     private void sendSseData(SseEmitter emitter, String data) {
@@ -495,6 +584,70 @@ public class AppController {
         // 返回可访问地址
         String deployUrl = String.format("%s/%s/", appProperties.getDeployHost(), deployKey);
         return ResultUtils.success(deployUrl);
+    }
+
+    /**
+     * 下载应用源代码：将生成的源码目录打包为 zip 返回
+     * <p>Vue 工程会排除 node_modules / dist 等体积大或可重建的目录。
+     */
+    @GetMapping("/download")
+    public void downloadCode(@RequestParam Long appId, HttpServletRequest request,
+                             HttpServletResponse response) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 id 错误");
+        User loginUser = userService.getLoginUser(request);
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
+        // 仅本人或管理员可下载
+        if (!app.getUserId().equals(loginUser.getId()) && !userService.isAdmin(loginUser)) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        // 源代码目录：类型_appId
+        String codeGenType = StrUtil.isNotBlank(app.getCodeGenType())
+                ? app.getCodeGenType() : CodeGenTypeEnum.HTML.getValue();
+        String sourceDirPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + codeGenType + "_" + appId;
+        File sourceDir = new File(sourceDirPath);
+        ThrowUtils.throwIf(!sourceDir.exists() || !sourceDir.isDirectory(),
+                ErrorCode.OPERATION_ERROR, "请先生成应用代码后再下载");
+        // 打包时排除的目录：体积大或可由源码重建
+        java.io.FileFilter zipFilter = file -> {
+            String name = file.getName();
+            return !"node_modules".equals(name) && !"dist".equals(name)
+                    && !".git".equals(name) && !".idea".equals(name);
+        };
+        File zipFile = null;
+        try {
+            zipFile = File.createTempFile("app_" + appId + "_", ".zip");
+            cn.hutool.core.util.ZipUtil.zip(zipFile, java.nio.charset.StandardCharsets.UTF_8,
+                    false, zipFilter, sourceDir);
+            String downloadName = sanitizeFileName(app.getAppName()) + "_" + appId + ".zip";
+            response.setContentType("application/octet-stream");
+            response.setContentLengthLong(zipFile.length());
+            response.setHeader("Content-Disposition",
+                    "attachment; filename=\"app_" + appId + ".zip\"; filename*=UTF-8''"
+                            + java.net.URLEncoder.encode(downloadName, java.nio.charset.StandardCharsets.UTF_8)
+                                    .replace("+", "%20"));
+            try (java.io.InputStream in = java.nio.file.Files.newInputStream(zipFile.toPath())) {
+                in.transferTo(response.getOutputStream());
+            }
+            response.flushBuffer();
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "代码打包失败：" + e.getMessage());
+        } finally {
+            if (zipFile != null) {
+                //noinspection ResultOfMethodCallIgnored
+                zipFile.delete();
+            }
+        }
+    }
+
+    /**
+     * 清洗文件名中的非法字符，避免下载文件名异常
+     */
+    private String sanitizeFileName(String name) {
+        if (StrUtil.isBlank(name)) {
+            return "app";
+        }
+        return name.replaceAll("[\\\\/:*?\"<>|\\s]+", "_");
     }
 
     // endregion

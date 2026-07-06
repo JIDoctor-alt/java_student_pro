@@ -143,6 +143,8 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
     public String buildPromptWithMemory(Long appId, String currentMessage, VisualEditContext visualContext) {
         QueryWrapper queryWrapper = QueryWrapper.create()
                 .eq("app_id", appId)
+                // 排除系统错误消息，避免历史错误污染记忆
+                .ne("message_type", ChatMessageTypeEnum.ERROR.getValue())
                 .orderBy("id desc")
                 .limit(AI_MEMORY_LIMIT);
         List<ChatHistory> recentList = this.list(queryWrapper);
@@ -158,9 +160,8 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
                 } else if (ChatMessageTypeEnum.AI.getValue().equals(history.getMessageType())) {
                     String aiContent = StrUtil.maxLength(history.getContent(), 2000);
                     sb.append("AI：").append(aiContent).append("\n");
-                } else if (ChatMessageTypeEnum.ERROR.getValue().equals(history.getMessageType())) {
-                    sb.append("系统错误：").append(history.getContent()).append("\n");
                 }
+                // 跳过系统错误消息：多为鉴权/连接等基础设施错误，注入会污染上下文并误导模型
             }
             sb.append("\n");
         }

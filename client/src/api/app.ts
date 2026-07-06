@@ -10,6 +10,7 @@ import type {
   ChatHistoryQueryRequest,
   DeleteRequest,
   Page,
+  PromptOptimizeRequest,
 } from './types'
 
 /**
@@ -22,6 +23,14 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localho
  */
 export async function addApp(body: AppAddRequest) {
   const res = await request.post<BaseResponse<number>>('/app/add', body)
+  return res.data
+}
+
+/**
+ * 优化应用描述提示词
+ */
+export async function optimizePrompt(body: PromptOptimizeRequest) {
+  const res = await request.post<BaseResponse<string>>('/app/prompt/optimize', body)
   return res.data
 }
 
@@ -71,6 +80,45 @@ export async function listGoodAppVoByPage(body: AppQueryRequest) {
 export async function deployApp(body: { appId: number }) {
   const res = await request.post<BaseResponse<string>>('/app/deploy', body)
   return res.data
+}
+
+/**
+ * 下载应用源代码（zip）。走 fetch 以携带会话 cookie 并处理二进制流。
+ */
+export async function downloadCode(appId: number, appName?: string) {
+  const res = await fetch(`${API_BASE_URL}/app/download?appId=${appId}`, {
+    credentials: 'include',
+  })
+  const contentType = res.headers.get('content-type') ?? ''
+  // 出错时后端返回 JSON
+  if (!res.ok || contentType.includes('application/json')) {
+    let msg = `下载失败 (${res.status})`
+    try {
+      const json = (await res.json()) as { message?: string }
+      msg = json.message || msg
+    } catch {
+      // ignore
+    }
+    throw new Error(msg)
+  }
+
+  const blob = await res.blob()
+  // 优先从响应头解析文件名
+  let filename = appName ? `${appName}_${appId}.zip` : `app_${appId}.zip`
+  const disposition = res.headers.get('content-disposition') ?? ''
+  const match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (match?.[1]) {
+    filename = decodeURIComponent(match[1])
+  }
+
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 /**

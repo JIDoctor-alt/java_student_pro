@@ -6,6 +6,22 @@
 - 部署目录：`/opt/code-student-pro`
 - 访问：`http://124.70.195.81/`
 
+## 服务器拉代码部署（推荐）
+
+在服务器上 clone 一次后，后续只需 pull + 脚本：
+
+```bash
+# 首次
+git clone -b feature-develop https://github.com/JIDoctor-alt/java_student_pro.git /opt/code-student-pro
+export DEEPSEEK_API_KEY='你的DeepSeek密钥'
+bash /opt/code-student-pro/deploy/deploy-on-server.sh
+
+# 更新
+cd /opt/code-student-pro
+git pull origin feature-develop
+bash deploy/deploy-on-server.sh
+```
+
 ## 一键部署（本地 Windows 执行）
 
 ```powershell

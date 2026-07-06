@@ -24,7 +24,7 @@ spring:
     redis:
       host: localhost
       port: 6379
-      # 使用独立 db，避免与其他项目（如 yuaicodemother）在 db0 的 Session 冲突
+      # 使用独立 db，避免与默认 db0 上的其他 Redis 数据冲突
       database: 1
 
 # LangChain4j 接入 DeepSeek（OpenAI 兼容协议）
@@ -34,20 +34,26 @@ langchain4j:
     chat-model:
       base-url: https://api.deepseek.com/v1
       api-key: ${DEEPSEEK_API_KEY:}
-      model-name: deepseek-chat
+      model-name: deepseek-v4-flash
       temperature: 0.7
       log-requests: true
       log-responses: true
     streaming-chat-model:
       base-url: https://api.deepseek.com/v1
       api-key: ${DEEPSEEK_API_KEY:}
-      model-name: deepseek-chat
+      model-name: deepseek-v4-flash
       temperature: 0.7
       log-requests: true
       log-responses: true
 
 # 应用自定义配置
 app:
+  # 初始管理员自举：全新数据库首次启动时若无管理员则自动创建
+  admin:
+    init-enabled: true
+    account: admin
+    # 留空则启动时随机生成密码并打印到日志；也可通过环境变量 ADMIN_INIT_PASSWORD 注入
+    password: ${ADMIN_INIT_PASSWORD:admin12345}
   server-base-url: http://127.0.0.1:8123/api
   cover-enabled: true
   cover-width: 1280
@@ -63,6 +69,71 @@ app:
   # LangGraph4j Checkpoint 持久化到 Redis（使用独立 db，避免与 Session 冲突）
   workflow-checkpoint-enabled: true
   workflow-checkpoint-redis-database: 2
+  # 用户额度（参考 nocode：套餐分级 + 付费扩容）
+  quota:
+    daily-login-bonus: 10
+    chat-expand-pack: 50
+    app-expand-pack: 5
+    chat-expand-price-yuan: 9
+    app-expand-price-yuan: 19
+    plans:
+      free:
+        label: 免费版
+        daily-chat-limit: 50
+        max-app-count: 5
+        price-yuan: 0
+      basic:
+        label: 基础版
+        daily-chat-limit: 150
+        max-app-count: 10
+        price-yuan: 29
+      pro:
+        label: 专业版
+        daily-chat-limit: 320
+        max-app-count: 20
+        price-yuan: 99
+  # 分场景 AI 模型（成本优化：简单任务可走 DashScope qwen-turbo，复杂 Agent 用 DeepSeek）
+  # 说明：LangChain4j 1.17 尚无 routing-chat-model 自动配置，场景路由见 AiModelRouter
+  ai-model:
+    base-url: https://api.deepseek.com/v1
+    api-key: ${DEEPSEEK_API_KEY:}
+    scenarios:
+      # HTML 流式：低成本 Qwen（DashScope OpenAI 兼容模式）
+      html-stream:
+        base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        api-key: ${DASHSCOPE_API_KEY:}
+        model-name: qwen-turbo
+        temperature: 0.7
+        max-tokens: 8192
+        log-requests: true
+        log-responses: true
+      multi-file-stream:
+        model-name: deepseek-v4-flash
+        temperature: 0.7
+      code-sync:
+        model-name: deepseek-v4-flash
+        temperature: 0.7
+      # 质量修正重试：低成本 Qwen
+      code-retry:
+        base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        api-key: ${DASHSCOPE_API_KEY:}
+        model-name: qwen-turbo
+        temperature: 0.3
+        max-tokens: 8192
+        log-requests: true
+        log-responses: true
+      vue-agent:
+        model-name: deepseek-v4-pro
+        temperature: 0.5
+      # 首页提示词优化：低成本 Qwen
+      prompt-optimize:
+        base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        api-key: ${DASHSCOPE_API_KEY:}
+        model-name: qwen-turbo
+        temperature: 0.7
+        max-tokens: 2048
+        log-requests: true
+        log-responses: true
 
 # 腾讯云 COS 对象存储（封面截图上传，本地开发可留空以使用 /cover/** 静态目录）
 cos:
@@ -86,3 +157,29 @@ mybatis-flex:
     map-underscore-to-camel-case: false
     # 开发期打印 SQL，便于调试
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# 可观测性：Spring Boot Actuator + Micrometer(Prometheus)
+# Prometheus 抓取地址：http://localhost:8123/api/actuator/prometheus
+management:
+  endpoints:
+    web:
+      exposure:
+        # 暴露健康检查、指标与 Prometheus 抓取端点
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      # 统一附加应用标签，便于 Grafana 多实例区分
+      application: ${spring.application.name}
+    distribution:
+      # 为 AI 请求耗时开启直方图分桶，支持 Grafana 计算 P95/P99
+      percentiles-histogram:
+        "[ai.request.duration]": true
+      slo:
+        "[ai.request.duration]": 1s,3s,5s,10s,30s,60s
+  prometheus:
+    metrics:
+      export:
+        enabled: true

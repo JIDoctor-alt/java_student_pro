@@ -114,6 +114,16 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
+        <!-- 可观测性：Actuator 暴露监控端点 + Micrometer Prometheus 指标 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- LangChain4j 核心 + OpenAI 兼容（用于接入 DeepSeek） -->
         <dependency>
             <groupId>dev.langchain4j</groupId>

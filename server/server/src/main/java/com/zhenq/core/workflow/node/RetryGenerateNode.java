@@ -1,7 +1,7 @@
 package com.zhenq.core.workflow.node;
 
 import cn.hutool.core.util.StrUtil;
-import com.zhenq.ai.AiCodeGeneratorService;
+import com.zhenq.ai.RoutingAiCodeGeneratorService;
 import com.zhenq.ai.model.MultiFileCodeResult;
 import com.zhenq.core.quality.CodeQualityReport;
 import com.zhenq.core.workflow.CodeGenWorkflowState;
@@ -21,7 +21,7 @@ import java.util.Map;
 public class RetryGenerateNode implements NodeAction<CodeGenWorkflowState> {
 
     @Resource
-    private AiCodeGeneratorService aiCodeGeneratorService;
+    private RoutingAiCodeGeneratorService aiCodeGeneratorService;
 
     @Override
     public Map<String, Object> apply(CodeGenWorkflowState state) {
@@ -59,8 +59,8 @@ public class RetryGenerateNode implements NodeAction<CodeGenWorkflowState> {
 
     private String regenerate(CodeGenTypeEnum type, String prompt) {
         return switch (type) {
-            case HTML -> aiCodeGeneratorService.generateHtmlCode(prompt).getHtmlCode();
-            case MULTI_FILE -> mergeMultiFileMarkdown(aiCodeGeneratorService.generateMultiFileCode(prompt));
+            case HTML -> aiCodeGeneratorService.generateHtmlCodeForRetry(prompt).getHtmlCode();
+            case MULTI_FILE -> mergeMultiFileMarkdown(aiCodeGeneratorService.generateMultiFileCodeForRetry(prompt));
             case VUE_PROJECT -> throw new IllegalStateException("Vue 工程不支持自动重试生成");
         };
     }

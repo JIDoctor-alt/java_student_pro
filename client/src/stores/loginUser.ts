@@ -25,10 +25,17 @@ export const useLoginUserStore = defineStore('loginUser', () => {
    * 远程拉取当前登录用户
    */
   async function fetchLoginUser() {
-    const res = await getCurrentUser()
-    if (res.code === 0 && res.data) {
-      loginUser.value = res.data
-    } else {
+    try {
+      const res = await getCurrentUser()
+      if (res.code === 0 && res.data) {
+        loginUser.value = res.data
+      } else {
+        loginUser.value = {
+          userName: '未登录',
+          userRole: ACCESS_ENUM.NOT_LOGIN,
+        }
+      }
+    } catch {
       loginUser.value = {
         userName: '未登录',
         userRole: ACCESS_ENUM.NOT_LOGIN,

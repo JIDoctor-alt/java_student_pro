@@ -108,7 +108,7 @@ onMounted(() => {
           v-model:value="prompt"
           :rows="3"
           :bordered="false"
-          placeholder="使用 NoCode 创建一个数据分析看板，用……"
+          placeholder="使用 ZqCode 创建一个数据分析看板，用……"
           class="hero__textarea"
           @press-enter.prevent="handleCreate"
         />

@@ -50,6 +50,12 @@ const router = createRouter({
       // 仅管理员可访问
       meta: { title: '应用管理', access: ACCESS_ENUM.ADMIN },
     },
+    {
+      path: '/admin/ai-model',
+      name: 'adminAiModel',
+      component: () => import('../views/admin/AiModelConfigView.vue'),
+      meta: { title: '模型接入', access: ACCESS_ENUM.ADMIN },
+    },
   ],
 })
 
