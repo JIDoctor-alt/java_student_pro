@@ -61,7 +61,7 @@ public class AiCodeGeneratorController {
                 .map(chunk -> ServerSentEvent.<String>builder().data(chunk).build())
                 .onErrorResume(e -> Flux.just(ServerSentEvent.<String>builder()
                         .event("gen-error")
-                        .data("生成失败：" + AiErrorUtils.toUserMessage(e))
+                        .data(AiErrorUtils.toUserMessage(e))
                         .build()))
                 .concatWith(Flux.just(ServerSentEvent.<String>builder().event("done").data("[DONE]").build()));
     }

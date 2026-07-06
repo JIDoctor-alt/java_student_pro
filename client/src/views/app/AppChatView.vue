@@ -27,6 +27,7 @@ import {
   isVisualEditMessage,
   type VisualEditContext,
 } from '@/utils/visualEdit'
+import { formatAiErrorMessage } from '@/utils/aiError'
 
 interface ChatMessage {
   id?: number
@@ -268,7 +269,8 @@ const resetBuildState = () => {
 const mapHistoryToMessage = (item: ChatHistoryVO): ChatMessage => ({
   id: item.id,
   role: item.messageType === 'user' ? 'user' : item.messageType === 'error' ? 'error' : 'ai',
-  content: item.content,
+  content:
+    item.messageType === 'error' ? formatAiErrorMessage(item.content) : item.content,
 })
 
 const showWelcomeIfNeeded = () => {
@@ -447,13 +449,14 @@ const generate = async (userPrompt: string) => {
       visualEditMode.value = false
     },
     onError: (errMsg) => {
+      const friendlyMsg = formatAiErrorMessage(errMsg)
       aiMsg.streaming = false
       generating.value = false
       currentAiMsg = null
       vueBuilding.value = false
-      buildError.value = errMsg
+      buildError.value = friendlyMsg
       if (buildLogs.value.length === 0) {
-        appendBuildLog(`❌ ${errMsg}`)
+        appendBuildLog(`❌ ${friendlyMsg}`)
       }
       previewUrl.value = ''
       if (raw.trim() || toolLogs.length) {
@@ -463,13 +466,13 @@ const generate = async (userPrompt: string) => {
           finishPreview()
           message.warning('生成过程中断，已展示部分内容')
         } else {
-          aiMsg.content += `\n\n❌ ${errMsg}`
-          message.error(errMsg)
+          aiMsg.content += `\n\n❌ ${friendlyMsg}`
+          message.warning(friendlyMsg)
         }
       } else {
-        aiMsg.content = errMsg
+        aiMsg.content = friendlyMsg
         aiMsg.role = 'error'
-        message.error(errMsg)
+        message.warning(friendlyMsg)
       }
       closeStream()
       selectedVisualContext.value = null
