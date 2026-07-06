@@ -4,6 +4,9 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
  * 应用自定义配置
  */
@@ -76,4 +79,70 @@ public class AppProperties {
      * Checkpoint 使用的 Redis database（建议与 Session db 分离）
      */
     private int workflowCheckpointRedisDatabase = 2;
+
+    /**
+     * 用户额度（控制 AI 成本，参考 nocode 对话次数 / 作品数量）
+     */
+    private QuotaProperties quota = new QuotaProperties();
+
+    @Data
+    public static class QuotaProperties {
+        /**
+         * 每日首次登录额外奖励
+         */
+        private int dailyLoginBonus = 10;
+        /**
+         * 单次购买对话扩容包大小
+         */
+        private int chatExpandPack = 50;
+        /**
+         * 单次购买作品扩容包大小
+         */
+        private int appExpandPack = 5;
+        /**
+         * 对话扩容包单价（元，模拟）
+         */
+        private int chatExpandPriceYuan = 9;
+        /**
+         * 作品扩容包单价（元，模拟）
+         */
+        private int appExpandPriceYuan = 19;
+        /**
+         * 套餐分级配置
+         */
+        private Map<String, PlanConfig> plans = defaultPlans();
+
+        private static Map<String, PlanConfig> defaultPlans() {
+            Map<String, PlanConfig> map = new LinkedHashMap<>();
+            PlanConfig free = new PlanConfig();
+            free.setLabel("免费版");
+            free.setDailyChatLimit(50);
+            free.setMaxAppCount(5);
+            free.setPriceYuan(0);
+            map.put("free", free);
+
+            PlanConfig basic = new PlanConfig();
+            basic.setLabel("基础版");
+            basic.setDailyChatLimit(150);
+            basic.setMaxAppCount(10);
+            basic.setPriceYuan(29);
+            map.put("basic", basic);
+
+            PlanConfig pro = new PlanConfig();
+            pro.setLabel("专业版");
+            pro.setDailyChatLimit(320);
+            pro.setMaxAppCount(20);
+            pro.setPriceYuan(99);
+            map.put("pro", pro);
+            return map;
+        }
+    }
+
+    @Data
+    public static class PlanConfig {
+        private String label = "";
+        private int dailyChatLimit = 50;
+        private int maxAppCount = 5;
+        private int priceYuan = 0;
+    }
 }

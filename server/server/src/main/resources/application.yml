@@ -69,6 +69,29 @@ app:
   # LangGraph4j Checkpoint 持久化到 Redis（使用独立 db，避免与 Session 冲突）
   workflow-checkpoint-enabled: true
   workflow-checkpoint-redis-database: 2
+  # 用户额度（参考 nocode：套餐分级 + 付费扩容）
+  quota:
+    daily-login-bonus: 10
+    chat-expand-pack: 50
+    app-expand-pack: 5
+    chat-expand-price-yuan: 9
+    app-expand-price-yuan: 19
+    plans:
+      free:
+        label: 免费版
+        daily-chat-limit: 50
+        max-app-count: 5
+        price-yuan: 0
+      basic:
+        label: 基础版
+        daily-chat-limit: 150
+        max-app-count: 10
+        price-yuan: 29
+      pro:
+        label: 专业版
+        daily-chat-limit: 320
+        max-app-count: 20
+        price-yuan: 99
   # 分场景 AI 模型（成本优化：简单任务可走 DashScope qwen-turbo，复杂 Agent 用 DeepSeek）
   # 说明：LangChain4j 1.17 尚无 routing-chat-model 自动配置，场景路由见 AiModelRouter
   ai-model:

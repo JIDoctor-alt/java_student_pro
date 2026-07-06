@@ -6,6 +6,7 @@ import type {
   UserAddRequest,
   UserLoginRequest,
   UserQueryRequest,
+  UserQuotaVO,
   UserRegisterRequest,
   UserType,
   UserUpdateRequest,
@@ -41,6 +42,24 @@ export async function userLogout() {
  */
 export async function getCurrentUser() {
   const res = await request.get<BaseResponse<LoginUserVO>>('/user/current')
+  return res.data
+}
+
+/** 获取当前用户额度 */
+export async function getUserQuota() {
+  const res = await request.get<BaseResponse<UserQuotaVO>>('/user/quota')
+  return res.data
+}
+
+/** 模拟购买扩容包 */
+export async function expandUserQuota(type: 'chat' | 'app', packs = 1) {
+  const res = await request.post<BaseResponse<UserQuotaVO>>('/user/quota/expand', { type, packs })
+  return res.data
+}
+
+/** 模拟升级套餐 */
+export async function upgradeUserPlan(plan: string) {
+  const res = await request.post<BaseResponse<UserQuotaVO>>('/user/quota/upgrade', { plan })
   return res.data
 }
 

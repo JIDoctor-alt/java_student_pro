@@ -9,6 +9,8 @@ import com.zhenq.common.ResultUtils;
 import com.zhenq.annotation.AuthCheck;
 import com.zhenq.constant.UserConstant;
 import com.zhenq.exception.ThrowUtils;
+import com.zhenq.model.dto.quota.QuotaExpandRequest;
+import com.zhenq.model.dto.quota.QuotaUpgradeRequest;
 import com.zhenq.model.dto.user.UserAddRequest;
 import com.zhenq.model.dto.user.UserLoginRequest;
 import com.zhenq.model.dto.user.UserQueryRequest;
@@ -16,7 +18,9 @@ import com.zhenq.model.dto.user.UserRegisterRequest;
 import com.zhenq.model.dto.user.UserUpdateRequest;
 import com.zhenq.model.entity.User;
 import com.zhenq.model.vo.LoginUserVO;
+import com.zhenq.model.vo.UserQuotaVO;
 import com.zhenq.model.vo.UserVO;
+import com.zhenq.service.UserQuotaService;
 import com.zhenq.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -42,6 +46,9 @@ public class UserController {
 
     @Resource
     private UserService userService;
+
+    @Resource
+    private UserQuotaService userQuotaService;
 
     // region 登录注册相关
 
@@ -69,6 +76,7 @@ public class UserController {
                 userLoginRequest.getUserAccount(),
                 userLoginRequest.getUserPassword(),
                 request);
+        userQuotaService.grantDailyLoginBonus(loginUserVO.getId());
         return ResultUtils.success(loginUserVO);
     }
 
@@ -87,7 +95,40 @@ public class UserController {
     @GetMapping("/current")
     public BaseResponse<LoginUserVO> getCurrentUser(HttpServletRequest request) {
         User user = userService.getLoginUser(request);
+        userQuotaService.grantDailyLoginBonus(user.getId());
         return ResultUtils.success(userService.getLoginUserVO(user));
+    }
+
+    /**
+     * 获取当前用户额度（对话次数 / 作品数量）
+     */
+    @GetMapping("/quota")
+    public BaseResponse<UserQuotaVO> getUserQuota(HttpServletRequest request) {
+        User user = userService.getLoginUser(request);
+        return ResultUtils.success(userQuotaService.getUserQuota(user));
+    }
+
+    /**
+     * 模拟购买扩容包（生产环境需对接支付）
+     */
+    @PostMapping("/quota/expand")
+    public BaseResponse<UserQuotaVO> expandQuota(@RequestBody QuotaExpandRequest expandRequest,
+                                                 HttpServletRequest request) {
+        ThrowUtils.throwIf(expandRequest == null, ErrorCode.PARAMS_ERROR);
+        User user = userService.getLoginUser(request);
+        int packs = expandRequest.getPacks() == null ? 1 : expandRequest.getPacks();
+        return ResultUtils.success(userQuotaService.expandQuota(user, expandRequest.getType(), packs));
+    }
+
+    /**
+     * 模拟升级套餐（生产环境需对接支付）
+     */
+    @PostMapping("/quota/upgrade")
+    public BaseResponse<UserQuotaVO> upgradePlan(@RequestBody QuotaUpgradeRequest upgradeRequest,
+                                                 HttpServletRequest request) {
+        ThrowUtils.throwIf(upgradeRequest == null, ErrorCode.PARAMS_ERROR);
+        User user = userService.getLoginUser(request);
+        return ResultUtils.success(userQuotaService.upgradePlan(user, upgradeRequest.getPlan()));
     }
 
     // endregion

@@ -41,6 +41,7 @@ import com.zhenq.model.vo.AppVO;
 import com.zhenq.model.vo.ChatHistoryCursorPageVO;
 import com.zhenq.service.AppService;
 import com.zhenq.service.ChatHistoryService;
+import com.zhenq.service.UserQuotaService;
 import com.zhenq.service.UserService;
 import com.zhenq.utils.AiErrorUtils;
 import jakarta.annotation.Resource;
@@ -100,6 +101,9 @@ public class AppController {
     private com.zhenq.monitor.AiMetricsCollector aiMetricsCollector;
 
     @Resource
+    private UserQuotaService userQuotaService;
+
+    @Resource
     private com.zhenq.service.AiModelRuntimeResolver aiModelRuntimeResolver;
 
     /**
@@ -123,6 +127,7 @@ public class AppController {
         String initPrompt = appAddRequest.getInitPrompt();
         ThrowUtils.throwIf(StrUtil.isBlank(initPrompt), ErrorCode.PARAMS_ERROR, "初始化 prompt 不能为空");
         User loginUser = userService.getLoginUser(request);
+        userQuotaService.checkCanCreateApp(loginUser);
         App app = new App();
         app.setInitPrompt(initPrompt);
         // 应用名称默认取 prompt 前 12 个字符
@@ -146,7 +151,9 @@ public class AppController {
         ThrowUtils.throwIf(optimizeRequest == null, ErrorCode.PARAMS_ERROR);
         String prompt = optimizeRequest.getPrompt();
         ThrowUtils.throwIf(StrUtil.isBlank(prompt), ErrorCode.PARAMS_ERROR, "提示词不能为空");
-        userService.getLoginUser(request);
+        User loginUser = userService.getLoginUser(request);
+        userQuotaService.checkCanChat(loginUser);
+        userQuotaService.recordChatUsage(loginUser.getId());
         CodeGenTypeEnum typeEnum = CodeGenTypeEnum.getEnumByValue(optimizeRequest.getCodeGenType());
         String typeLabel = typeEnum != null ? typeEnum.getValue() : CodeGenTypeEnum.HTML.getValue();
         String userMessage = """
@@ -272,6 +279,8 @@ public class AppController {
         if (!app.getUserId().equals(loginUser.getId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
+        userQuotaService.checkCanChat(loginUser);
+        userQuotaService.recordChatUsage(loginUser.getId());
         CodeGenTypeEnum typeEnum = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
         if (typeEnum == null) {
             typeEnum = CodeGenTypeEnum.HTML;

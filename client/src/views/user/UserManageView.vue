@@ -1,8 +1,16 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { deleteUser, listUserVoByPage } from '@/api/user'
-import type { UserQueryRequest, UserVO } from '@/api/types'
+import { deleteUser, listUserVoByPage, updateUser } from '@/api/user'
+import type { UserQueryRequest, UserUpdateRequest, UserVO } from '@/api/types'
+
+const PLAN_OPTIONS = [
+  { value: 'free', label: '免费版' },
+  { value: 'basic', label: '基础版' },
+  { value: 'pro', label: '专业版' },
+]
+
+const planLabel = (plan?: string) => PLAN_OPTIONS.find((p) => p.value === plan)?.label ?? plan ?? '-'
 
 const columns = [
   { title: 'id', dataIndex: 'id', width: 80 },
@@ -11,19 +19,31 @@ const columns = [
   { title: '头像', dataIndex: 'userAvatar', key: 'userAvatar', width: 80 },
   { title: '简介', dataIndex: 'userProfile' },
   { title: '角色', dataIndex: 'userRole', key: 'userRole', width: 100 },
+  { title: '套餐', dataIndex: 'userPlan', key: 'userPlan', width: 90 },
+  { title: '对话扩容', dataIndex: 'extraChatQuota', key: 'extraChatQuota', width: 90 },
+  { title: '作品扩容', dataIndex: 'extraAppQuota', key: 'extraAppQuota', width: 90 },
   { title: '创建时间', dataIndex: 'createTime', width: 180 },
-  { title: '操作', key: 'action', width: 120 },
+  { title: '操作', key: 'action', width: 160 },
 ]
 
 const dataList = ref<UserVO[]>([])
 const total = ref(0)
 const loading = ref(false)
+const quotaModalVisible = ref(false)
+const quotaSaving = ref(false)
 
 const searchParams = reactive<UserQueryRequest>({
   current: 1,
   pageSize: 10,
   userAccount: '',
   userName: '',
+})
+
+const quotaForm = reactive<UserUpdateRequest>({
+  id: 0,
+  userPlan: 'free',
+  extraChatQuota: 0,
+  extraAppQuota: 0,
 })
 
 const fetchData = async () => {
@@ -59,6 +79,35 @@ const handleTableChange = (pagination: { current?: number; pageSize?: number }) 
   searchParams.current = pagination.current ?? 1
   searchParams.pageSize = pagination.pageSize ?? 10
   fetchData()
+}
+
+const openQuotaModal = (record: UserVO) => {
+  quotaForm.id = record.id
+  quotaForm.userPlan = record.userPlan || 'free'
+  quotaForm.extraChatQuota = record.extraChatQuota ?? 0
+  quotaForm.extraAppQuota = record.extraAppQuota ?? 0
+  quotaModalVisible.value = true
+}
+
+const handleSaveQuota = async () => {
+  quotaSaving.value = true
+  try {
+    const res = await updateUser({
+      id: quotaForm.id,
+      userPlan: quotaForm.userPlan,
+      extraChatQuota: quotaForm.extraChatQuota ?? 0,
+      extraAppQuota: quotaForm.extraAppQuota ?? 0,
+    })
+    if (res.code === 0 && res.data) {
+      message.success('额度已更新')
+      quotaModalVisible.value = false
+      fetchData()
+    } else {
+      message.error(res.message || '更新失败')
+    }
+  } finally {
+    quotaSaving.value = false
+  }
 }
 
 const handleDelete = (record: UserVO) => {
@@ -126,11 +175,44 @@ onMounted(() => {
             {{ record.userRole === 'admin' ? '管理员' : '普通用户' }}
           </a-tag>
         </template>
+        <template v-else-if="column.key === 'userPlan'">
+          {{ planLabel(record.userPlan) }}
+        </template>
+        <template v-else-if="column.key === 'extraChatQuota'">
+          +{{ record.extraChatQuota ?? 0 }}
+        </template>
+        <template v-else-if="column.key === 'extraAppQuota'">
+          +{{ record.extraAppQuota ?? 0 }}
+        </template>
         <template v-else-if="column.key === 'action'">
-          <a-button type="link" danger size="small" @click="handleDelete(record)">删除</a-button>
+          <a-space>
+            <a-button type="link" size="small" @click="openQuotaModal(record)">调整额度</a-button>
+            <a-button type="link" danger size="small" @click="handleDelete(record)">删除</a-button>
+          </a-space>
         </template>
       </template>
     </a-table>
+
+    <a-modal
+      v-model:open="quotaModalVisible"
+      title="调整用户额度"
+      ok-text="保存"
+      cancel-text="取消"
+      :confirm-loading="quotaSaving"
+      @ok="handleSaveQuota"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="套餐">
+          <a-select v-model:value="quotaForm.userPlan" :options="PLAN_OPTIONS" />
+        </a-form-item>
+        <a-form-item label="对话扩容（额外每日对话次数）">
+          <a-input-number v-model:value="quotaForm.extraChatQuota" :min="0" :max="9999" style="width: 100%" />
+        </a-form-item>
+        <a-form-item label="作品扩容（额外作品数量）">
+          <a-input-number v-model:value="quotaForm.extraAppQuota" :min="0" :max="9999" style="width: 100%" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 

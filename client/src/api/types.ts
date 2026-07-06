@@ -32,6 +32,39 @@ export interface LoginUserVO {
   updateTime?: string
 }
 
+/** 用户额度（对话次数 / 作品数量 / 套餐） */
+export interface UserQuotaVO {
+  userPlan?: string
+  userPlanLabel?: string
+  chatUsed: number
+  chatLimit: number
+  planChatLimit?: number
+  extraChatQuota?: number
+  dailyLoginBonus: number
+  dailyBonusGranted: boolean
+  appUsed: number
+  appLimit: number
+  planAppLimit?: number
+  extraAppQuota?: number
+  unlimited?: boolean
+  upgradeEnabled?: boolean
+  expandEnabled?: boolean
+  plans?: QuotaPlanVO[]
+  chatExpandPack?: number
+  appExpandPack?: number
+  chatExpandPriceYuan?: number
+  appExpandPriceYuan?: number
+}
+
+export interface QuotaPlanVO {
+  plan: string
+  label: string
+  dailyChatLimit: number
+  maxAppCount: number
+  priceYuan: number
+  current?: boolean
+}
+
 /**
  * 用户视图（脱敏）
  */
@@ -42,6 +75,9 @@ export interface UserVO {
   userAvatar?: string
   userProfile?: string
   userRole?: string
+  userPlan?: string
+  extraChatQuota?: number
+  extraAppQuota?: number
   createTime?: string
 }
 
@@ -77,6 +113,9 @@ export interface UserUpdateRequest {
   userAvatar?: string
   userProfile?: string
   userRole?: string
+  userPlan?: string
+  extraChatQuota?: number
+  extraAppQuota?: number
 }
 
 export interface UserQueryRequest {

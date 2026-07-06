@@ -34,4 +34,19 @@ public class UserUpdateRequest implements Serializable {
      * 用户角色：user / admin
      */
     private String userRole;
+
+    /**
+     * 套餐：free / basic / pro
+     */
+    private String userPlan;
+
+    /**
+     * 付费扩容-对话
+     */
+    private Integer extraChatQuota;
+
+    /**
+     * 付费扩容-作品
+     */
+    private Integer extraAppQuota;
 }

@@ -56,6 +56,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         user.setUserPassword(encryptPassword);
         user.setUserName("用户" + userAccount);
         user.setUserRole(UserRoleEnum.USER.getValue());
+        user.setUserPlan(com.zhenq.model.enums.UserPlanEnum.FREE.getValue());
+        user.setExtraChatQuota(0);
+        user.setExtraAppQuota(0);
         boolean saveResult = this.save(user);
         ThrowUtils.throwIf(!saveResult, ErrorCode.SYSTEM_ERROR, "注册失败，数据库错误");
         return user.getId();
