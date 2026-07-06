@@ -155,7 +155,14 @@ public class AppController {
         userQuotaService.checkCanChat(loginUser);
         userQuotaService.recordChatUsage(loginUser.getId());
         CodeGenTypeEnum typeEnum = CodeGenTypeEnum.getEnumByValue(optimizeRequest.getCodeGenType());
-        String typeLabel = typeEnum != null ? typeEnum.getValue() : CodeGenTypeEnum.HTML.getValue();
+        if (typeEnum == null) {
+            typeEnum = CodeGenTypeEnum.HTML;
+        }
+        String apiKeyError = checkModelApiKeyForGen(com.zhenq.ai.AiModelScenario.PROMPT_OPTIMIZE);
+        if (apiKeyError != null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, apiKeyError);
+        }
+        String typeLabel = typeEnum.getValue();
         String userMessage = """
                 【生成类型】%s
                 【用户原始提示词】
@@ -293,6 +300,11 @@ public class AppController {
         String savedMessage = VisualEditPromptUtils.formatUserMessage(message, visualEditContext);
         chatHistoryService.saveUserMessage(appId, loginUser.getId(), savedMessage);
 
+        String apiKeyError = checkModelApiKeyForGen(typeEnum);
+        if (apiKeyError != null) {
+            return createGenErrorEmitter(appId, apiKeyError);
+        }
+
         String model = resolveModelName(typeEnum);
         if (CodeGenTypeEnum.VUE_PROJECT == typeEnum) {
             return chatToGenVueProject(appId, promptWithMemory, loginUser.getId(), model);
@@ -351,10 +363,10 @@ public class AppController {
                         error -> {
                             recordAiRequest(appId, userId, genType, model, "error", startNanos);
                             String errMsg = AiErrorUtils.toUserMessage(error);
-                            chatHistoryService.saveErrorMessage(appId, "生成失败：" + errMsg);
+                            chatHistoryService.saveErrorMessage(appId, errMsg);
                             try {
                                 emitter.send(SseEmitter.event().name("gen-error")
-                                        .data("生成失败：" + errMsg));
+                                        .data(errMsg));
                                 emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                                 emitter.complete();
                             } catch (IOException ignored) {
@@ -473,6 +485,37 @@ public class AppController {
         } catch (IOException ignored) {
             // 客户端已断开
         }
+    }
+
+    private com.zhenq.ai.AiModelScenario resolveAiScenario(CodeGenTypeEnum typeEnum) {
+        return switch (typeEnum) {
+            case VUE_PROJECT -> com.zhenq.ai.AiModelScenario.VUE_AGENT;
+            case MULTI_FILE -> com.zhenq.ai.AiModelScenario.MULTI_FILE_STREAM;
+            default -> com.zhenq.ai.AiModelScenario.HTML_STREAM;
+        };
+    }
+
+    private String checkModelApiKeyForGen(com.zhenq.ai.AiModelScenario scenario) {
+        String apiKey = aiModelRuntimeResolver.resolveApiKey(scenario.getConfigKey());
+        if (StrUtil.isBlank(apiKey)) {
+            return AiErrorUtils.API_KEY_NOT_CONFIGURED_MESSAGE;
+        }
+        return null;
+    }
+
+    private String checkModelApiKeyForGen(CodeGenTypeEnum typeEnum) {
+        return checkModelApiKeyForGen(resolveAiScenario(typeEnum));
+    }
+
+    private SseEmitter createGenErrorEmitter(Long appId, String errMsg) {
+        SseEmitter emitter = new SseEmitter(60_000L);
+        chatHistoryService.saveErrorMessage(appId, errMsg);
+        Schedulers.boundedElastic().schedule(() -> {
+            sendSseEvent(emitter, "gen-error", errMsg);
+            sendSseEvent(emitter, "done", "[DONE]");
+            emitter.complete();
+        });
+        return emitter;
     }
 
     /**

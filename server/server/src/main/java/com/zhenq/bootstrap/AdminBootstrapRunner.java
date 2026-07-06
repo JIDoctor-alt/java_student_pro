@@ -51,6 +51,7 @@ public class AdminBootstrapRunner implements ApplicationRunner {
         User existing = userService.getOne(
                 QueryWrapper.create().eq("user_account", adminAccount));
         if (existing != null) {
+            syncBootstrapAdminDisplayName(existing);
             if (!UserRoleEnum.ADMIN.getValue().equals(existing.getUserRole())) {
                 log.warn("[AdminBootstrap] 账号 [{}] 已存在但角色非 admin，未做任何修改，请手动处理。", adminAccount);
             }
@@ -82,5 +83,25 @@ public class AdminBootstrapRunner implements ApplicationRunner {
         }
         log.warn("[AdminBootstrap] 生产环境请务必修改默认密码！");
         log.warn("========================================================");
+    }
+
+    /**
+     * 修复因服务器非 UTF-8 环境写入数据库的管理员昵称乱码。
+     */
+    private void syncBootstrapAdminDisplayName(User existing) {
+        if (!adminAccount.equals(existing.getUserAccount())) {
+            return;
+        }
+        String expectedName = "超级管理员";
+        if (expectedName.equals(existing.getUserName())) {
+            return;
+        }
+        User update = new User();
+        update.setId(existing.getId());
+        update.setUserName(expectedName);
+        boolean ok = userService.updateById(update);
+        if (ok) {
+            log.warn("[AdminBootstrap] 已修复管理员昵称乱码，同步为「{}」", expectedName);
+        }
     }
 }

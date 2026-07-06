@@ -3,6 +3,12 @@ server:
   servlet:
     # 全局接口前缀，前端请求统一走 /api
     context-path: /api
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+      force-request: true
+      force-response: true
 
 spring:
   application:
@@ -13,7 +19,7 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     # 数据库名 student_pro，请按本地实际情况修改账号密码
-    url: jdbc:mysql://localhost:3306/student_pro?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3306/student_pro?useUnicode=true&characterEncoding=utf-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: root
   # Redis 分布式 Session（需本地启动 Redis，默认 localhost:6379）
